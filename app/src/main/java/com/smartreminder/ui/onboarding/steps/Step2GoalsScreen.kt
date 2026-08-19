@@ -56,15 +56,8 @@ import androidx.compose.ui.unit.dp
 import com.smartreminder.R
 import com.smartreminder.ui.onboarding.GoalOption
 import com.smartreminder.ui.onboarding.OnboardingUiState
-import com.smartreminder.ui.theme.CueAccent
-import com.smartreminder.ui.theme.CueAccentContainer
-import com.smartreminder.ui.theme.CueAccentStrong
-import com.smartreminder.ui.theme.CueBorder
-import com.smartreminder.ui.theme.CueBorderStrong
-import com.smartreminder.ui.theme.CueOnCta
 import com.smartreminder.ui.theme.CueSpacing
-import com.smartreminder.ui.theme.CueTextPrimary
-import com.smartreminder.ui.theme.CueTextSecondary
+import com.smartreminder.ui.theme.CueTheme
 import com.smartreminder.ui.theme.SmartReminderTheme
 
 @Composable
@@ -86,7 +79,7 @@ fun Step2GoalsScreen(
         Text(
             text = stringResource(R.string.onboarding_goals_title),
             style = MaterialTheme.typography.headlineLarge,
-            color = CueTextPrimary
+            color = CueTheme.colors.textPrimary
         )
 
         Spacer(modifier = Modifier.height(CueSpacing.Sm))
@@ -94,7 +87,7 @@ fun Step2GoalsScreen(
         Text(
             text = stringResource(R.string.onboarding_goals_subtitle),
             style = MaterialTheme.typography.bodyLarge,
-            color = CueTextSecondary
+            color = CueTheme.colors.textSecondary
         )
 
         Spacer(modifier = Modifier.height(CueSpacing.Xl))
@@ -129,13 +122,13 @@ fun Step2GoalsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(CueSpacing.Md))
-                    .background(CueAccentContainer.copy(alpha = 0.6f))
+                    .background(CueTheme.colors.accentContainer.copy(alpha = 0.6f))
                     .padding(horizontal = CueSpacing.Lg, vertical = CueSpacing.Md)
             ) {
                 Text(
                     text = stringResource(R.string.onboarding_goals_configured_badge, uiState.selectedGoals.size),
                     style = MaterialTheme.typography.labelLarge,
-                    color = CueAccentStrong
+                    color = CueTheme.colors.accentStrong
                 )
             }
         }
@@ -152,7 +145,7 @@ private fun GoalSelectionRow(
     modifier: Modifier = Modifier
 ) {
     val backgroundColor by animateColorAsState(
-        targetValue = if (isSelected) CueAccentContainer.copy(alpha = 0.5f) else Color.Transparent,
+        targetValue = if (isSelected) CueTheme.colors.accentContainer.copy(alpha = 0.5f) else Color.Transparent,
         animationSpec = tween(durationMillis = 180),
         label = "GoalRowBackground"
     )
@@ -191,7 +184,7 @@ private fun GoalSelectionRow(
                     .width(indicatorWidth)
                     .fillMaxHeight()
                     .align(Alignment.CenterStart)
-                    .background(CueAccent)
+                    .background(CueTheme.colors.accent)
             )
         }
 
@@ -205,7 +198,7 @@ private fun GoalSelectionRow(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (isSelected) CueAccent else CueBorderStrong,
+                tint = if (isSelected) CueTheme.colors.accent else CueTheme.colors.borderStrong,
                 modifier = Modifier.size(22.dp)
             )
 
@@ -219,7 +212,7 @@ private fun GoalSelectionRow(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleMedium,
-                        color = CueTextPrimary
+                        color = CueTheme.colors.textPrimary
                     )
 
                     // Optional AI Core Tag
@@ -227,13 +220,13 @@ private fun GoalSelectionRow(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(CueSpacing.Xs))
-                                .background(CueAccent)
+                                .background(CueTheme.colors.accent)
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = stringResource(R.string.goal_planning_tag),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = CueOnCta
+                                color = CueTheme.colors.onCta
                             )
                         }
                     }
@@ -244,20 +237,20 @@ private fun GoalSelectionRow(
                 Text(
                     text = description,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = CueTextSecondary
+                    color = CueTheme.colors.textSecondary
                 )
             }
         }
 
         HorizontalDivider(
-            color = CueBorder.copy(alpha = 0.6f),
+            color = CueTheme.colors.border.copy(alpha = 0.6f),
             thickness = 1.dp,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFFFAFAF9)
+@Preview(showBackground = true)
 @Composable
 private fun Step2GoalsPreview() {
     SmartReminderTheme {

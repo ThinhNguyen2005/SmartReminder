@@ -37,11 +37,8 @@ import com.smartreminder.R
 import com.smartreminder.ui.onboarding.OnboardingUiState
 import com.smartreminder.ui.onboarding.TimePickerTarget
 import com.smartreminder.ui.onboarding.components.CueDailyRhythm
-import com.smartreminder.ui.theme.CueBorder
 import com.smartreminder.ui.theme.CueSpacing
-import com.smartreminder.ui.theme.CueSurfaceSubtle
-import com.smartreminder.ui.theme.CueTextPrimary
-import com.smartreminder.ui.theme.CueTextSecondary
+import com.smartreminder.ui.theme.CueTheme
 import com.smartreminder.ui.theme.SmartReminderTheme
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -70,7 +67,7 @@ fun Step1RhythmScreen(
         Text(
             text = stringResource(R.string.onboarding_rhythm_title),
             style = MaterialTheme.typography.headlineLarge,
-            color = CueTextPrimary
+            color = CueTheme.colors.textPrimary
         )
 
         Spacer(modifier = Modifier.height(CueSpacing.Sm))
@@ -78,7 +75,7 @@ fun Step1RhythmScreen(
         Text(
             text = stringResource(R.string.onboarding_rhythm_subtitle),
             style = MaterialTheme.typography.bodyLarge,
-            color = CueTextSecondary
+            color = CueTheme.colors.textSecondary
         )
 
         Spacer(modifier = Modifier.height(CueSpacing.Xl))
@@ -87,7 +84,7 @@ fun Step1RhythmScreen(
         Text(
             text = stringResource(R.string.onboarding_rhythm_eyebrow),
             style = MaterialTheme.typography.labelSmall,
-            color = CueTextSecondary
+            color = CueTheme.colors.textSecondary
         )
 
         Spacer(modifier = Modifier.height(CueSpacing.Sm))
@@ -96,7 +93,7 @@ fun Step1RhythmScreen(
         Column(
             modifier = Modifier.fillMaxWidth()
         ) {
-            HorizontalDivider(color = CueBorder, thickness = 1.dp)
+            HorizontalDivider(color = CueTheme.colors.border, thickness = 1.dp)
 
             // Wake Time Row (Whole Row Clickable with Haptics)
             RoutineTimeRow(
@@ -110,7 +107,7 @@ fun Step1RhythmScreen(
             )
 
             HorizontalDivider(
-                color = CueBorder,
+                color = CueTheme.colors.border,
                 thickness = 1.dp,
                 modifier = Modifier.padding(start = 36.dp)
             )
@@ -126,7 +123,7 @@ fun Step1RhythmScreen(
                 }
             )
 
-            HorizontalDivider(color = CueBorder, thickness = 1.dp)
+            HorizontalDivider(color = CueTheme.colors.border, thickness = 1.dp)
         }
 
         Spacer(modifier = Modifier.height(28.dp))
@@ -167,26 +164,26 @@ private fun RoutineTimeRow(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = CueTextSecondary,
+                tint = CueTheme.colors.textSecondary,
                 modifier = Modifier.size(24.dp)
             )
 
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
-                color = CueTextPrimary
+                color = CueTheme.colors.textPrimary
             )
         }
 
         // Tonal Time Pill (No nested click target)
         Surface(
             shape = RoundedCornerShape(CueSpacing.Sm),
-            color = CueSurfaceSubtle
+            color = CueTheme.colors.surfaceSubtle
         ) {
             Text(
                 text = timeFormatted,
                 style = MaterialTheme.typography.labelLarge,
-                color = CueTextPrimary,
+                color = CueTheme.colors.textPrimary,
                 modifier = Modifier.padding(
                     horizontal = CueSpacing.Lg,
                     vertical = CueSpacing.Sm
@@ -196,7 +193,7 @@ private fun RoutineTimeRow(
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFFFAFAF9)
+@Preview(showBackground = true)
 @Composable
 private fun Step1RhythmPreview() {
     SmartReminderTheme {

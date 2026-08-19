@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -50,14 +51,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartreminder.R
-import com.smartreminder.ui.theme.CueAccent
-import com.smartreminder.ui.theme.CueAccentContainer
-import com.smartreminder.ui.theme.CueAccentStrong
-import com.smartreminder.ui.theme.CueBorder
 import com.smartreminder.ui.theme.CueSpacing
-import com.smartreminder.ui.theme.CueTextPrimary
-import com.smartreminder.ui.theme.CueTextSecondary
-import com.smartreminder.ui.theme.CueTextTertiary
+import com.smartreminder.ui.theme.CueTheme
 import com.smartreminder.ui.theme.SmartReminderTheme
 
 @Composable
@@ -110,7 +105,7 @@ fun Step3TimelineScreen(
         Text(
             text = stringResource(R.string.onboarding_timeline_title),
             style = MaterialTheme.typography.headlineLarge,
-            color = CueTextPrimary
+            color = CueTheme.colors.textPrimary
         )
 
         Spacer(modifier = Modifier.height(CueSpacing.Sm))
@@ -118,7 +113,7 @@ fun Step3TimelineScreen(
         Text(
             text = stringResource(R.string.onboarding_timeline_subtitle),
             style = MaterialTheme.typography.bodyLarge,
-            color = CueTextSecondary
+            color = CueTheme.colors.textSecondary
         )
 
         Spacer(modifier = Modifier.height(28.dp))
@@ -171,7 +166,7 @@ fun Step3TimelineScreen(
                         .fillMaxWidth()
                         .padding(start = 68.dp, bottom = CueSpacing.Md)
                         .clip(RoundedCornerShape(CueSpacing.Md))
-                        .background(CueAccentContainer)
+                        .background(CueTheme.colors.accentContainer)
                         .padding(CueSpacing.Md)
                 ) {
                     Column {
@@ -182,13 +177,13 @@ fun Step3TimelineScreen(
                             Icon(
                                 imageVector = Icons.Filled.AutoAwesome,
                                 contentDescription = null,
-                                tint = CueAccentStrong,
+                                tint = CueTheme.colors.accentStrong,
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
                                 text = stringResource(R.string.timeline_ai_tooltip_title),
                                 style = MaterialTheme.typography.labelLarge,
-                                color = CueAccentStrong
+                                color = CueTheme.colors.accentStrong
                             )
                         }
 
@@ -197,7 +192,7 @@ fun Step3TimelineScreen(
                         Text(
                             text = stringResource(R.string.timeline_ai_tooltip_desc),
                             style = MaterialTheme.typography.bodySmall,
-                            color = CueTextPrimary
+                            color = CueTheme.colors.textPrimary
                         )
                     }
                 }
@@ -222,7 +217,7 @@ fun Step3TimelineScreen(
             Text(
                 text = stringResource(R.string.onboarding_timeline_caption),
                 style = MaterialTheme.typography.bodyMedium,
-                color = CueTextTertiary
+                color = CueTheme.colors.textSecondary
             )
 
             Spacer(modifier = Modifier.height(CueSpacing.Xs))
@@ -230,7 +225,7 @@ fun Step3TimelineScreen(
             Text(
                 text = stringResource(R.string.timeline_tap_hint),
                 style = MaterialTheme.typography.labelSmall,
-                color = CueAccent,
+                color = CueTheme.colors.accent,
                 modifier = Modifier.clickable {
                     showAiReasoning = !showAiReasoning
                 }
@@ -259,6 +254,9 @@ private fun TimelineItem(
     aiScale: Float = 1f,
     onAiClick: () -> Unit = {}
 ) {
+    val borderColor = CueTheme.colors.border
+    val textMutedColor = CueTheme.colors.textMuted
+
     Row(
         verticalAlignment = Alignment.Top,
         modifier = modifier
@@ -269,7 +267,7 @@ private fun TimelineItem(
         Text(
             text = time,
             style = MaterialTheme.typography.bodyMedium,
-            color = CueTextSecondary,
+            color = CueTheme.colors.textSecondary,
             modifier = Modifier
                 .width(56.dp)
                 .padding(top = if (isAi) CueSpacing.Sm else 2.dp)
@@ -296,7 +294,7 @@ private fun TimelineItem(
                         TimelineLineType.SOLID -> {
                             Canvas(modifier = Modifier.matchParentSize()) {
                                 drawLine(
-                                    color = CueBorder,
+                                    color = borderColor,
                                     start = Offset(1.dp.toPx(), 0f),
                                     end = Offset(1.dp.toPx(), size.height),
                                     strokeWidth = 2.dp.toPx()
@@ -306,7 +304,7 @@ private fun TimelineItem(
                         TimelineLineType.DASHED -> {
                             Canvas(modifier = Modifier.matchParentSize()) {
                                 drawLine(
-                                    color = CueTextTertiary,
+                                    color = textMutedColor,
                                     start = Offset(1.dp.toPx(), 0f),
                                     end = Offset(1.dp.toPx(), size.height),
                                     strokeWidth = 2.dp.toPx(),
@@ -337,7 +335,7 @@ private fun TimelineItem(
                                 scaleY = aiScale
                             }
                             .clip(RoundedCornerShape(CueSpacing.Md))
-                            .background(CueAccentContainer)
+                            .background(CueTheme.colors.accentContainer)
                             .clickable(onClick = onAiClick)
                             .padding(horizontal = CueSpacing.Lg, vertical = CueSpacing.Sm)
                     ) {
@@ -347,13 +345,13 @@ private fun TimelineItem(
                         ) {
                             Text(
                                 text = "✦",
-                                color = CueAccentStrong,
+                                color = CueTheme.colors.accentStrong,
                                 fontSize = 14.sp
                             )
                             Text(
                                 text = title,
                                 style = MaterialTheme.typography.titleMedium,
-                                color = CueAccentStrong
+                                color = CueTheme.colors.accentStrong
                             )
                         }
                     }
@@ -361,7 +359,7 @@ private fun TimelineItem(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleMedium,
-                        color = CueTextPrimary,
+                        color = CueTheme.colors.textPrimary,
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
@@ -370,7 +368,7 @@ private fun TimelineItem(
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFFFAFAF9)
+@Preview(showBackground = true)
 @Composable
 private fun Step3TimelinePreview() {
     SmartReminderTheme {

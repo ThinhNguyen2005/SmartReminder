@@ -1,5 +1,6 @@
 package com.smartreminder.ui.onboarding.components
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -24,14 +25,15 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -52,7 +54,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -60,22 +64,62 @@ import com.smartreminder.R
 import com.smartreminder.domain.time.TimeCalculator
 import com.smartreminder.ui.onboarding.OnboardingStep
 import com.smartreminder.ui.onboarding.TimePickerTarget
-import com.smartreminder.ui.theme.CueAccent
-import com.smartreminder.ui.theme.CueAccentContainer
-import com.smartreminder.ui.theme.CueAccentStrong
-import com.smartreminder.ui.theme.CueBorder
-import com.smartreminder.ui.theme.CueBorderStrong
-import com.smartreminder.ui.theme.CueCta
-import com.smartreminder.ui.theme.CueOnCta
 import com.smartreminder.ui.theme.CueSpacing
-import com.smartreminder.ui.theme.CueSurface
-import com.smartreminder.ui.theme.CueSurfaceSubtle
-import com.smartreminder.ui.theme.CueTextPrimary
-import com.smartreminder.ui.theme.CueTextSecondary
-import com.smartreminder.ui.theme.CueTextTertiary
+import com.smartreminder.ui.theme.CueTheme
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+/**
+ * Polished Theme Toggle Button with continuous rotation & alpha transition (@hieu-ung-nangcao).
+ */
+@Composable
+fun ThemeToggleButton(
+    isDark: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val rotation by animateFloatAsState(
+        targetValue = if (isDark) 180f else 0f,
+        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+        label = "ThemeToggleRotation"
+    )
+
+    IconButton(
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onToggle()
+        },
+        modifier = modifier
+            .size(44.dp)
+            .graphicsLayer {
+                rotationZ = rotation
+            }
+    ) {
+        Crossfade(
+            targetState = isDark,
+            animationSpec = tween(durationMillis = 200),
+            label = "ThemeToggleCrossfade"
+        ) { dark ->
+            if (dark) {
+                Icon(
+                    imageVector = Icons.Outlined.Bedtime,
+                    contentDescription = "Switch to Light Mode",
+                    tint = CueTheme.colors.accent,
+                    modifier = Modifier.size(20.dp)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Outlined.WbSunny,
+                    contentDescription = "Switch to Dark Mode",
+                    tint = CueTheme.colors.textPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
 
 /**
  * Primary CTA Button for Cue with 16dp rounded corners, native ripple, and subtle tactile press feedback.
@@ -85,8 +129,8 @@ fun CuePrimaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    backgroundColor: Color = CueCta,
-    textColor: Color = CueOnCta,
+    backgroundColor: Color = CueTheme.colors.cta,
+    textColor: Color = CueTheme.colors.onCta,
     enabled: Boolean = true
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -152,10 +196,10 @@ fun ProgressDotsIndicator(
 
             val color by animateColorAsState(
                 targetValue = when {
-                    isSelected && currentStep == OnboardingStep.TIMELINE -> CueTextPrimary
-                    isSelected -> CueAccent
-                    isPassed -> CueAccent
-                    else -> CueBorderStrong
+                    isSelected && currentStep == OnboardingStep.TIMELINE -> CueTheme.colors.textPrimary
+                    isSelected -> CueTheme.colors.accent
+                    isPassed -> CueTheme.colors.accent
+                    else -> CueTheme.colors.borderStrong
                 },
                 animationSpec = tween(durationMillis = 200),
                 label = "DotColor"
@@ -201,7 +245,7 @@ fun CueDailyRhythm(
         Text(
             text = stringResource(R.string.onboarding_rhythm_daily_eyebrow),
             style = MaterialTheme.typography.labelSmall,
-            color = CueTextSecondary
+            color = CueTheme.colors.textSecondary
         )
 
         Spacer(modifier = Modifier.height(CueSpacing.Md))
@@ -238,13 +282,13 @@ fun CueDailyRhythm(
                         Text(
                             text = wakeUpTime.format(timeFormatter),
                             style = MaterialTheme.typography.titleMedium,
-                            color = CueTextPrimary
+                            color = CueTheme.colors.textPrimary
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = stringResource(R.string.onboarding_rhythm_wake_up),
                             style = MaterialTheme.typography.labelSmall,
-                            color = CueTextSecondary
+                            color = CueTheme.colors.textSecondary
                         )
                     }
 
@@ -260,13 +304,13 @@ fun CueDailyRhythm(
                         Text(
                             text = sleepTime.format(timeFormatter),
                             style = MaterialTheme.typography.titleMedium,
-                            color = CueTextPrimary
+                            color = CueTheme.colors.textPrimary
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = stringResource(R.string.onboarding_rhythm_sleep),
                             style = MaterialTheme.typography.labelSmall,
-                            color = CueTextSecondary
+                            color = CueTheme.colors.textSecondary
                         )
                     }
 
@@ -282,13 +326,13 @@ fun CueDailyRhythm(
                         Text(
                             text = wakeUpTime.format(timeFormatter),
                             style = MaterialTheme.typography.titleMedium,
-                            color = CueTextTertiary
+                            color = CueTheme.colors.textSecondary
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = stringResource(R.string.onboarding_rhythm_next_wake),
                             style = MaterialTheme.typography.labelSmall,
-                            color = CueTextTertiary
+                            color = CueTheme.colors.textSecondary
                         )
                     }
                 }
@@ -314,7 +358,7 @@ fun CueDailyRhythm(
                             modifier = Modifier
                                 .weight(breakdown.planningFraction)
                                 .fillMaxHeight()
-                                .background(CueAccent)
+                                .background(CueTheme.colors.accent)
                         )
 
                         Spacer(modifier = Modifier.width(2.dp))
@@ -324,7 +368,7 @@ fun CueDailyRhythm(
                             modifier = Modifier
                                 .weight(breakdown.quietFraction)
                                 .fillMaxHeight()
-                                .background(CueBorderStrong)
+                                .background(CueTheme.colors.borderStrong)
                         )
                     }
 
@@ -337,7 +381,7 @@ fun CueDailyRhythm(
                             .offset(x = markerOffsetDp)
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(CueAccentStrong)
+                            .background(CueTheme.colors.accentStrong)
                     )
                 }
             }
@@ -358,7 +402,7 @@ fun CueDailyRhythm(
                     breakdown.planningDuration.minutes
                 ),
                 style = MaterialTheme.typography.labelMedium,
-                color = CueAccentStrong
+                color = CueTheme.colors.accentStrong
             )
 
             Text(
@@ -368,7 +412,7 @@ fun CueDailyRhythm(
                     breakdown.quietDuration.minutes
                 ),
                 style = MaterialTheme.typography.labelMedium,
-                color = CueTextSecondary
+                color = CueTheme.colors.textSecondary
             )
         }
 
@@ -378,7 +422,7 @@ fun CueDailyRhythm(
         Text(
             text = stringResource(R.string.onboarding_rhythm_insight),
             style = MaterialTheme.typography.bodySmall,
-            color = CueTextSecondary
+            color = CueTheme.colors.textSecondary
         )
     }
 }
@@ -433,7 +477,7 @@ fun CueTimePickerBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = CueSurface,
+        containerColor = CueTheme.colors.surface,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = {
             Box(
@@ -442,7 +486,7 @@ fun CueTimePickerBottomSheet(
                     .width(36.dp)
                     .height(4.dp)
                     .clip(CircleShape)
-                    .background(CueBorderStrong)
+                    .background(CueTheme.colors.borderStrong)
             )
         }
     ) {
@@ -455,7 +499,7 @@ fun CueTimePickerBottomSheet(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
-                color = CueTextPrimary
+                color = CueTheme.colors.textPrimary
             )
 
             Spacer(modifier = Modifier.height(CueSpacing.Lg))
@@ -464,7 +508,7 @@ fun CueTimePickerBottomSheet(
                 Text(
                     text = stringResource(R.string.onboarding_quick_select_title),
                     style = MaterialTheme.typography.labelSmall,
-                    color = CueTextSecondary
+                    color = CueTheme.colors.textSecondary
                 )
 
                 Spacer(modifier = Modifier.height(CueSpacing.Md))
@@ -476,9 +520,9 @@ fun CueTimePickerBottomSheet(
                 ) {
                     presets.forEach { preset ->
                         val isSelected = preset.hour == currentTime.hour && preset.minute == currentTime.minute
-                        val backgroundColor = if (isSelected) CueAccentContainer else CueSurfaceSubtle
-                        val textColor = if (isSelected) CueAccentStrong else CueTextPrimary
-                        val borderColor = if (isSelected) CueAccent else CueBorder
+                        val backgroundColor = if (isSelected) CueTheme.colors.accentContainer else CueTheme.colors.surfaceSubtle
+                        val textColor = if (isSelected) CueTheme.colors.accentStrong else CueTheme.colors.textPrimary
+                        val borderColor = if (isSelected) CueTheme.colors.accent else CueTheme.colors.border
 
                         Surface(
                             onClick = {
@@ -509,7 +553,7 @@ fun CueTimePickerBottomSheet(
                         showCustomDial = true
                     },
                     shape = RoundedCornerShape(CueSpacing.Md),
-                    color = CueSurfaceSubtle,
+                    color = CueTheme.colors.surfaceSubtle,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -520,14 +564,14 @@ fun CueTimePickerBottomSheet(
                         Icon(
                             imageVector = Icons.Outlined.Schedule,
                             contentDescription = null,
-                            tint = CueTextSecondary,
+                            tint = CueTheme.colors.textSecondary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(CueSpacing.Sm))
                         Text(
                             text = stringResource(R.string.onboarding_custom_time),
                             style = MaterialTheme.typography.labelLarge,
-                            color = CueTextPrimary
+                            color = CueTheme.colors.textPrimary
                         )
                     }
                 }
@@ -545,18 +589,18 @@ fun CueTimePickerBottomSheet(
                     TimePicker(
                         state = timePickerState,
                         colors = TimePickerDefaults.colors(
-                            clockDialColor = CueSurfaceSubtle,
-                            clockDialUnselectedContentColor = CueTextPrimary,
-                            clockDialSelectedContentColor = CueOnCta,
-                            selectorColor = CueAccent,
-                            periodSelectorBorderColor = CueBorder,
-                            periodSelectorSelectedContainerColor = CueAccentContainer,
-                            periodSelectorSelectedContentColor = CueAccentStrong,
-                            periodSelectorUnselectedContentColor = CueTextSecondary,
-                            timeSelectorSelectedContainerColor = CueAccentContainer,
-                            timeSelectorSelectedContentColor = CueAccentStrong,
-                            timeSelectorUnselectedContainerColor = CueSurfaceSubtle,
-                            timeSelectorUnselectedContentColor = CueTextPrimary
+                            clockDialColor = CueTheme.colors.surfaceSubtle,
+                            clockDialUnselectedContentColor = CueTheme.colors.textPrimary,
+                            clockDialSelectedContentColor = CueTheme.colors.onCta,
+                            selectorColor = CueTheme.colors.accent,
+                            periodSelectorBorderColor = CueTheme.colors.border,
+                            periodSelectorSelectedContainerColor = CueTheme.colors.accentContainer,
+                            periodSelectorSelectedContentColor = CueTheme.colors.accentStrong,
+                            periodSelectorUnselectedContentColor = CueTheme.colors.textSecondary,
+                            timeSelectorSelectedContainerColor = CueTheme.colors.accentContainer,
+                            timeSelectorSelectedContentColor = CueTheme.colors.accentStrong,
+                            timeSelectorUnselectedContainerColor = CueTheme.colors.surfaceSubtle,
+                            timeSelectorUnselectedContentColor = CueTheme.colors.textPrimary
                         )
                     )
 
@@ -570,7 +614,7 @@ fun CueTimePickerBottomSheet(
                             Text(
                                 text = stringResource(R.string.action_cancel),
                                 style = MaterialTheme.typography.labelLarge,
-                                color = CueTextSecondary
+                                color = CueTheme.colors.textSecondary
                             )
                         }
                         Spacer(modifier = Modifier.width(CueSpacing.Sm))
@@ -584,7 +628,7 @@ fun CueTimePickerBottomSheet(
                             Text(
                                 text = stringResource(R.string.action_ok),
                                 style = MaterialTheme.typography.labelLarge,
-                                color = CueAccent
+                                color = CueTheme.colors.accent
                             )
                         }
                     }

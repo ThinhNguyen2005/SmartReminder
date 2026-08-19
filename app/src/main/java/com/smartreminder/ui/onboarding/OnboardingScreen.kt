@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
@@ -41,11 +42,8 @@ import com.smartreminder.ui.onboarding.components.ProgressDotsIndicator
 import com.smartreminder.ui.onboarding.steps.Step1RhythmScreen
 import com.smartreminder.ui.onboarding.steps.Step2GoalsScreen
 import com.smartreminder.ui.onboarding.steps.Step3TimelineScreen
-import com.smartreminder.ui.theme.CueAccent
-import com.smartreminder.ui.theme.CueBackground
-import com.smartreminder.ui.theme.CueCta
 import com.smartreminder.ui.theme.CueSpacing
-import com.smartreminder.ui.theme.CueTextPrimary
+import com.smartreminder.ui.theme.CueTheme
 import com.smartreminder.ui.theme.SmartReminderTheme
 import kotlinx.coroutines.launch
 
@@ -66,7 +64,7 @@ fun OnboardingScreen(
     }
 
     Scaffold(
-        containerColor = CueBackground,
+        containerColor = CueTheme.colors.background,
         topBar = {
             OnboardingHeader(
                 currentStep = currentStep,
@@ -99,9 +97,7 @@ fun OnboardingScreen(
                     .padding(horizontal = CueSpacing.Xl, vertical = CueSpacing.Lg)
             )
         },
-        modifier = modifier
-            .fillMaxSize()
-            .statusBarsPadding()
+        modifier = modifier.fillMaxSize()
     ) { innerPadding ->
         HorizontalPager(
             state = pagerState,
@@ -174,6 +170,7 @@ private fun OnboardingHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = modifier
             .fillMaxWidth()
+            .statusBarsPadding()
             .height(52.dp)
             .padding(horizontal = CueSpacing.Md)
     ) {
@@ -182,7 +179,7 @@ private fun OnboardingHeader(
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = stringResource(R.string.action_back),
-                    tint = CueTextPrimary
+                    tint = CueTheme.colors.textPrimary
                 )
             }
         } else {
@@ -194,7 +191,7 @@ private fun OnboardingHeader(
                 Text(
                     text = stringResource(R.string.action_skip),
                     style = MaterialTheme.typography.labelLarge,
-                    color = CueAccent
+                    color = CueTheme.colors.accent
                 )
             }
         } else {
@@ -217,7 +214,7 @@ private fun OnboardingFooter(
         // Dots Indicator
         ProgressDotsIndicator(currentStep = currentStep)
 
-        // Action Button (16dp rounded corners, black CTA)
+        // Action Button (16dp rounded corners, CTA)
         val buttonText = when (currentStep) {
             OnboardingStep.RHYTHM, OnboardingStep.GOALS -> stringResource(R.string.action_continue)
             OnboardingStep.TIMELINE -> stringResource(R.string.action_start_using_cue)
@@ -226,12 +223,13 @@ private fun OnboardingFooter(
         CuePrimaryButton(
             text = buttonText,
             onClick = onContinue,
-            backgroundColor = CueCta
+            backgroundColor = CueTheme.colors.cta,
+            textColor = CueTheme.colors.onCta
         )
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFFFAFAF9)
+@Preview(showBackground = true)
 @Composable
 private fun OnboardingScreenPreview() {
     SmartReminderTheme {
