@@ -119,3 +119,40 @@ Trước khi hoàn tất bất kỳ tính năng nào:
 1. `.\gradlew.bat compileDebugSources` $\rightarrow$ Phải đạt **BUILD SUCCESSFUL (0 errors)**.
 2. `.\gradlew.bat test` $\rightarrow$ Toàn bộ Unit Tests phải pass (100%).
 3. Không để lại import thừa, không dead code, không TODO chưa giải quyết.
+
+---
+
+## 6. 🔬 Nguyên tắc Sửa code Phẫu thuật (Surgical Precision & Zero-Churn Coding)
+
+> **Quy tắc cốt lõi:** *"Cảnh giới cao nhất của viết code là hạn chế thay đổi code lớn, chỉ thay đổi khi thực sự cần thiết. Thay đổi đúng 1 dòng ở tầng gốc tốt hơn viết lại 100 dòng ở các tầng ngọn."*
+
+### 6.1. Cấm Ghi đè (Overwrite) file khi chỉ sửa một phần nhỏ
+* **CẤM:** Tuyệt đối không ghi đè lại toàn bộ file hàng trăm dòng khi chỉ cần thêm 1 tham số hoặc đổi một thuộc tính nhỏ.
+* **BẮT BUỘC:** Thực hiện sửa đổi phẫu thuật chính xác (Surgical Edit) vào đúng các dòng cần tác động, giữ nguyên 100% các phần còn lại.
+
+### 6.2. Ưu tiên Giải pháp tại Gốc (Root Level Architecture First)
+* Khi bổ sung tính năng xuyên suốt (như Dark Mode, Token màu, Tiện ích thời gian), hãy giải quyết ngay tại **tầng Foundation / Token / Data layer** (ví dụ: dùng `@Composable @ReadOnlyComposable get()` trong `Color.kt`) để **0 file UI nào ở tầng trên phải bị sửa đổi**.
+* Giữ nguyên cú pháp sạch sẽ, bảo toàn lịch sử `git blame` và loại bỏ hoàn toàn Git Diff rác.
+
+### 6.3. Giảm thiểu Rủi ro Regression & Kiểm soát Git Diff
+* Trước khi sửa bất kỳ file nào, luôn tự hỏi: *"Có cách nào giải quyết vấn đề này với số dòng thay đổi ít nhất và an toàn nhất không?"*
+* Không reformat bừa bãi, không xáo trộn thứ tự import, không chạm vào code đang chạy ổn định trừ khi phục vụ trực tiếp cho yêu cầu.
+
+---
+
+## 7. 📋 Quy trình Khởi tạo Chức năng Mới (Feature Inception, Socratic Gate & TODO Tracking)
+
+> **Quy tắc bắt buộc:** *"Trước khi viết bất kỳ chức năng hay màn hình mới nào, luôn làm rõ mục đích với người dùng và tạo danh sách TODO chi tiết để không bỏ sót bất kỳ nhiệm vụ nào."*
+
+### 7.1. Cổng Khảo sát Mục đích (Socratic Inception Gate)
+* Khi chuẩn bị phát triển một trang hoặc tính năng mới:
+  1. **Hỏi người dùng:** Làm rõ mục đích cụ thể: *"Trang/chức năng này làm gì? Người dùng sẽ tương tác như thế nào? Luồng dữ liệu vào/ra ra sao?"*
+  2. **Thống nhất Phạm vi (Scope Alignment):** Không tự ý giả định hay code trước khi người dùng xác nhận mục đích và yêu cầu nghiệp vụ.
+
+### 7.2. Lập Danh sách TODO Bắt buộc (Task & Edge-Case Checklist)
+* Trước khi bắt tay thực hiện, luôn tạo checklist các đầu việc cụ thể:
+  - [ ] **Data / Model Layer**: Entity, Room DAO, Repository, DataStore Preferences.
+  - [ ] **Domain / Engine Layer**: Business Logic, Time calculations, Unit Tests (Given-When-Then).
+  - [ ] **UI / Presentation Layer**: Screen Composable, ViewModel State transitions, Preview, Strings EN/VI.
+  - [ ] **Integration & Pre-flight Verification**: `compileDebugSources` + `test` 100% pass.
+* Cập nhật tiến độ `[x]` minh bạch sau từng bước hoàn thành.
