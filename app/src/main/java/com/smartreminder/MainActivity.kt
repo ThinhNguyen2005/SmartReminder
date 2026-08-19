@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
@@ -17,9 +18,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
+import com.smartreminder.ui.onboarding.OnboardingScreen
 import com.smartreminder.ui.theme.SmartReminderTheme
 
 class MainActivity : ComponentActivity() {
@@ -28,15 +29,41 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             SmartReminderTheme {
-                SmartReminderApp()
+                MainRootView()
             }
+        }
+    }
+}
+
+@Composable
+fun MainRootView() {
+    var isOnboardingCompleted by rememberSaveable { mutableStateOf(false) }
+
+    Crossfade(
+        targetState = isOnboardingCompleted,
+        label = "RootViewCrossfade"
+    ) { completed ->
+        if (!completed) {
+            OnboardingScreen(
+                onFinishOnboarding = {
+                    isOnboardingCompleted = true
+                }
+            )
+        } else {
+            SmartReminderApp(
+                onRestartOnboarding = {
+                    isOnboardingCompleted = false
+                }
+            )
         }
     }
 }
 
 @PreviewScreenSizes
 @Composable
-fun SmartReminderApp() {
+fun SmartReminderApp(
+    onRestartOnboarding: () -> Unit = {}
+) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
     NavigationSuiteScaffold(
@@ -58,7 +85,7 @@ fun SmartReminderApp() {
     ) {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Greeting(
-                name = "Android",
+                name = "Cue User",
                 modifier = Modifier.padding(innerPadding)
             )
         }
@@ -77,7 +104,7 @@ enum class AppDestinations(
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
     Text(
-        text = "Hello $name!",
+        text = "Hello $name! Welcome to Cue.",
         modifier = modifier
     )
 }
@@ -86,6 +113,6 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 @Composable
 fun GreetingPreview() {
     SmartReminderTheme {
-        Greeting("Android")
+        MainRootView()
     }
 }

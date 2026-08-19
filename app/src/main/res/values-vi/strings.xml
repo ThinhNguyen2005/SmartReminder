@@ -1,0 +1,63 @@
+<resources>
+    <string name="app_name">Cue</string>
+
+    <!-- Common & Actions -->
+    <string name="action_continue">Tiếp tục</string>
+    <string name="action_skip">Bỏ qua</string>
+    <string name="action_start_using_cue">Bắt đầu sử dụng Cue</string>
+    <string name="action_cancel">Hủy</string>
+    <string name="action_ok">Đồng ý</string>
+    <string name="action_back">Quay lại</string>
+
+    <!-- Onboarding Step 1: Rhythm (Giới hạn khung giờ chân thực) -->
+    <string name="onboarding_rhythm_title">Một ngày bình thường của bạn diễn ra thế nào?</string>
+    <string name="onboarding_rhythm_subtitle">Cue sử dụng khung giờ này để tránh đề xuất công việc quá sớm hoặc quá muộn.</string>
+    <string name="onboarding_rhythm_eyebrow">THÓI QUEN CỦA BẠN</string>
+    <string name="onboarding_rhythm_wake_up">Thức dậy</string>
+    <string name="onboarding_rhythm_sleep">Đi ngủ</string>
+    <string name="onboarding_dialog_wake_up_title">Chọn giờ thức dậy</string>
+    <string name="onboarding_dialog_sleep_title">Chọn giờ đi ngủ</string>
+    <string name="onboarding_rhythm_day_boundary">Khung giờ trong ngày</string>
+    <string name="onboarding_rhythm_insight">Cue tránh đề xuất công việc trong khung giờ nghỉ ngơi của bạn.</string>
+    <string name="onboarding_quick_select_title">Mốc giờ phổ biến</string>
+    <string name="onboarding_custom_time">Chỉnh giờ chi tiết</string>
+    <string name="onboarding_rhythm_daily_eyebrow">NHỊP SINH HOẠT HÀNG NGÀY</string>
+    <string name="onboarding_rhythm_next_wake">Hôm sau</string>
+    <string name="onboarding_rhythm_planning_legend">Lên lịch · %1$d giờ %2$02d phút</string>
+    <string name="onboarding_rhythm_quiet_legend">Nghỉ ngơi · %1$d giờ %2$02d phút</string>
+
+    <!-- Onboarding Step 2: Goals -->
+    <string name="onboarding_goals_title">Bạn muốn Cue hỗ trợ điều gì?</string>
+    <string name="onboarding_goals_subtitle">Chọn các mục tiêu phù hợp. Cue sẽ sử dụng thông tin này để cá nhân hóa lịch trình.</string>
+    <string name="goal_planning_tag">AI Cốt lõi</string>
+    <string name="onboarding_goals_configured_badge">Cue sẽ ưu tiên %1$d mục tiêu này</string>
+    
+    <string name="goal_tasks_title">Quản lý công việc hiệu quả</string>
+    <string name="goal_tasks_desc">Theo dõi việc cần làm, hạn chót và nhắc nhở quan trọng</string>
+    
+    <string name="goal_routines_title">Xây dựng thói quen tốt</string>
+    <string name="goal_routines_desc">Tạo lập lịch trình lặp lại hàng ngày và hàng tuần</string>
+    
+    <string name="goal_planning_title">Tối ưu hóa thời gian</string>
+    <string name="goal_planning_desc">Cue tìm các khoảng thời gian trống phù hợp cho việc lớn</string>
+    
+    <string name="goal_study_title">Học tập trung và năng suất</string>
+    <string name="goal_study_desc">Lên kế hoạch cho các phiên học chuyên sâu</string>
+    
+    <string name="goal_teamwork_title">Phối hợp nhóm dễ dàng</string>
+    <string name="goal_teamwork_desc">Chia sẻ công việc và thời gian biểu chung</string>
+
+    <!-- Onboarding Step 3: Timeline Simulation -->
+    <string name="onboarding_timeline_title">Dành trọn thời gian cho điều quan trọng</string>
+    <string name="onboarding_timeline_subtitle">Cue ước tính các khoảng thời gian phù hợp dựa trên lịch trình, deadline và thứ tự ưu tiên của bạn.</string>
+    
+    <string name="timeline_item_class">Giờ học trên lớp</string>
+    <string name="timeline_item_meeting">Họp dự án nhóm</string>
+    <string name="timeline_item_ai_suggestion">Bắt đầu làm bài tập · 15:00</string>
+    <string name="timeline_item_workout">Tập thể thao</string>
+    <string name="onboarding_timeline_caption">Cue gợi ý thông minh. Bạn luôn nắm quyền quyết định.</string>
+    <string name="timeline_ai_tooltip_title">Tại sao lại là 15:00?</string>
+    <string name="timeline_ai_tooltip_desc">Khoảng trống 2 tiếng giữa cuộc họp và giờ tập thể thao.</string>
+    <string name="timeline_tap_hint">Chạm vào đề xuất để xem lý do AI gợi ý</string>
+
+</resources>

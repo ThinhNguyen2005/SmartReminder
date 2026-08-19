@@ -1,3 +1,62 @@
 <resources>
     <string name="app_name">Cue</string>
+
+    <!-- Common & Actions -->
+    <string name="action_continue">Continue</string>
+    <string name="action_skip">Skip</string>
+    <string name="action_start_using_cue">Start using Cue</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_ok">OK</string>
+    <string name="action_back">Back</string>
+
+    <!-- Onboarding Step 1: Rhythm (Honest Guardrails & Day Boundaries) -->
+    <string name="onboarding_rhythm_title">What does a typical day look like?</string>
+    <string name="onboarding_rhythm_subtitle">Cue uses your daily rhythm to avoid suggesting tasks too early or too late.</string>
+    <string name="onboarding_rhythm_eyebrow">YOUR ROUTINE</string>
+    <string name="onboarding_rhythm_wake_up">Wake up</string>
+    <string name="onboarding_rhythm_sleep">Sleep</string>
+    <string name="onboarding_dialog_wake_up_title">Set Wake Up Time</string>
+    <string name="onboarding_dialog_sleep_title">Set Sleep Time</string>
+    <string name="onboarding_rhythm_day_boundary">Your day boundaries</string>
+    <string name="onboarding_rhythm_insight">Cue avoids scheduling tasks during your quiet hours.</string>
+    <string name="onboarding_quick_select_title">Popular Presets</string>
+    <string name="onboarding_custom_time">Custom time</string>
+    <string name="onboarding_rhythm_daily_eyebrow">YOUR DAILY RHYTHM</string>
+    <string name="onboarding_rhythm_next_wake">Next wake</string>
+    <string name="onboarding_rhythm_planning_legend">Planning · %1$dh %2$02dm</string>
+    <string name="onboarding_rhythm_quiet_legend">Quiet · %1$dh %2$02dm</string>
+
+    <!-- Onboarding Step 2: Goals -->
+    <string name="onboarding_goals_title">What should Cue help you with?</string>
+    <string name="onboarding_goals_subtitle">Choose all that apply. Cue will use this to personalize your plans.</string>
+    <string name="goal_planning_tag">AI Core</string>
+    <string name="onboarding_goals_configured_badge">Cue will prioritize these %1$d targets.</string>
+    
+    <string name="goal_tasks_title">Stay on top of tasks</string>
+    <string name="goal_tasks_desc">Tasks, deadlines and important reminders</string>
+    
+    <string name="goal_routines_title">Build better routines</string>
+    <string name="goal_routines_desc">Create repeatable daily and weekly schedules</string>
+    
+    <string name="goal_planning_title">Plan my time better</string>
+    <string name="goal_planning_desc">Cue finds better times for important work</string>
+    
+    <string name="goal_study_title">Study more effectively</string>
+    <string name="goal_study_desc">Plan focused study sessions</string>
+    
+    <string name="goal_teamwork_title">Work with others</string>
+    <string name="goal_teamwork_desc">Shared tasks and schedules</string>
+
+    <!-- Onboarding Step 3: Timeline Simulation -->
+    <string name="onboarding_timeline_title">Make time for what matters</string>
+    <string name="onboarding_timeline_subtitle">Cue considers your schedule, deadlines and priorities to suggest better times for important tasks.</string>
+    
+    <string name="timeline_item_class">Class</string>
+    <string name="timeline_item_meeting">Project meeting</string>
+    <string name="timeline_item_ai_suggestion">Start assignment · 15:00</string>
+    <string name="timeline_item_workout">Workout</string>
+    <string name="onboarding_timeline_caption">Cue suggests. You stay in control.</string>
+    <string name="timeline_ai_tooltip_title">Why 15:00?</string>
+    <string name="timeline_ai_tooltip_desc">2-hour open slot detected between meeting and workout.</string>
+    <string name="timeline_tap_hint">Tap suggestion to see AI reasoning</string>
 </resources>
