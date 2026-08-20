@@ -13,3 +13,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Agent & Archives
+agent/
+*.7z
+.agents/
+.agent/

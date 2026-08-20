@@ -59,4 +59,19 @@
     <string name="timeline_ai_tooltip_title">Why 15:00?</string>
     <string name="timeline_ai_tooltip_desc">2-hour open slot detected between meeting and workout.</string>
     <string name="timeline_tap_hint">Tap suggestion to see AI reasoning</string>
+
+    <!-- Welcome & Auth Screen -->
+    <string name="auth_welcome_headline">Plan less. Do what matters.</string>
+    <string name="auth_welcome_subtitle">Cue helps organize your tasks, schedules and reminders around your day.</string>
+    <string name="auth_btn_google">Continue with Google</string>
+    <string name="auth_btn_email">Continue with Email</string>
+    <string name="auth_have_account_prompt">Already have an account? </string>
+    <string name="auth_sign_in_action">Sign in</string>
+    <string name="auth_hero_image_description">3D Abstract Composition</string>
+    <string name="auth_logo_cue_description">Cue App Logo</string>
+    <string name="auth_google_logo_description">Google Logo</string>
+    <string name="auth_email_logo_description">Email Icon</string>
+    <string name="auth_success_toast">Welcome back, %1$s!</string>
+    <string name="auth_error_cancelled">Google sign in was cancelled.</string>
+    <string name="auth_error_missing_config">Please configure GOOGLE_WEB_CLIENT_ID in SupabaseClient.kt.</string>
 </resources>

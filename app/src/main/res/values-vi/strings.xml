@@ -60,4 +60,18 @@
     <string name="timeline_ai_tooltip_desc">Khoảng trống 2 tiếng giữa cuộc họp và giờ tập thể thao.</string>
     <string name="timeline_tap_hint">Chạm vào đề xuất để xem lý do AI gợi ý</string>
 
+    <!-- Màn hình Welcome & Đăng nhập -->
+    <string name="auth_welcome_headline">Lên kế hoạch thông minh. Tập trung việc lớn.</string>
+    <string name="auth_welcome_subtitle">Cue giúp sắp xếp công việc, lịch trình và nhắc nhở linh hoạt theo ngày của bạn.</string>
+    <string name="auth_btn_google">Tiếp tục với Google</string>
+    <string name="auth_btn_email">Tiếp tục với Email</string>
+    <string name="auth_have_account_prompt">Bạn đã có tài khoản? </string>
+    <string name="auth_sign_in_action">Đăng nhập</string>
+    <string name="auth_hero_image_description">Hình ảnh 3D minh họa nghệ thuật</string>
+    <string name="auth_logo_cue_description">Biểu tượng ứng dụng Cue</string>
+    <string name="auth_google_logo_description">Logo Google</string>
+    <string name="auth_email_logo_description">Biểu tượng Email</string>
+    <string name="auth_success_toast">Chào mừng trở lại, %1$s!</string>
+    <string name="auth_error_cancelled">Đã hủy đăng nhập Google.</string>
+    <string name="auth_error_missing_config">Vui lòng điền GOOGLE_WEB_CLIENT_ID trong SupabaseClient.kt.</string>
 </resources>

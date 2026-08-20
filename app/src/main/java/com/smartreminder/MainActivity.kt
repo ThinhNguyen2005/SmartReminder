@@ -21,8 +21,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.smartreminder.ui.auth.AuthViewModel
 import com.smartreminder.ui.onboarding.OnboardingScreen
+import com.smartreminder.ui.screens.WelcomeScreen
 import com.smartreminder.ui.theme.SmartReminderTheme
+
+enum class AppFlowState {
+    WELCOME,
+    ONBOARDING,
+    MAIN_APP
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,24 +47,42 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainRootView() {
-    var isOnboardingCompleted by rememberSaveable { mutableStateOf(false) }
+    var flowState by rememberSaveable { mutableStateOf(AppFlowState.WELCOME) }
+    val authViewModel: AuthViewModel = viewModel()
 
     Crossfade(
-        targetState = isOnboardingCompleted,
+        targetState = flowState,
         label = "RootViewCrossfade"
-    ) { completed ->
-        if (!completed) {
-            OnboardingScreen(
-                onFinishOnboarding = {
-                    isOnboardingCompleted = true
-                }
-            )
-        } else {
-            SmartReminderApp(
-                onRestartOnboarding = {
-                    isOnboardingCompleted = false
-                }
-            )
+    ) { state ->
+        when (state) {
+            AppFlowState.WELCOME -> {
+                WelcomeScreen(
+                    viewModel = authViewModel,
+                    onLoginSuccess = {
+                        flowState = AppFlowState.MAIN_APP
+                    },
+                    onContinueWithEmail = {
+                        flowState = AppFlowState.ONBOARDING
+                    },
+                    onSignInClick = {
+                        flowState = AppFlowState.MAIN_APP
+                    }
+                )
+            }
+            AppFlowState.ONBOARDING -> {
+                OnboardingScreen(
+                    onFinishOnboarding = {
+                        flowState = AppFlowState.MAIN_APP
+                    }
+                )
+            }
+            AppFlowState.MAIN_APP -> {
+                SmartReminderApp(
+                    onRestartOnboarding = {
+                        flowState = AppFlowState.WELCOME
+                    }
+                )
+            }
         }
     }
 }
