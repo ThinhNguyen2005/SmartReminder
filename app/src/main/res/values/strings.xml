@@ -9,6 +9,12 @@
     <string name="action_ok">OK</string>
     <string name="action_back">Back</string>
 
+    <string name="nav_today">Today</string>
+    <string name="nav_schedules">Schedules</string>
+    <string name="nav_tasks">Tasks</string>
+    <string name="nav_profile">Profile</string>
+    <string name="placeholder_coming_soon">Coming soon</string>
+
     <!-- Onboarding Step 1: Rhythm (Honest Guardrails & Day Boundaries) -->
     <string name="onboarding_rhythm_title">What does a typical day look like?</string>
     <string name="onboarding_rhythm_subtitle">Cue uses your daily rhythm to avoid suggesting tasks too early or too late.</string>
@@ -75,4 +81,34 @@
     <string name="auth_error_cancelled">Google sign in was cancelled.</string>
     <string name="auth_error_missing_config">Please configure GOOGLE_WEB_CLIENT_ID in SupabaseClient.kt.</string>
     <string name="auth_sign_in_coming_soon">Email sign-in is coming soon. Please continue with Google or Email onboarding.</string>
+
+    <!-- Schedules Screen (Phase D1) -->
+    <string name="schedules_title">Schedules</string>
+    <string name="schedules_manage_groups">Manage Groups</string>
+    <string name="schedules_filter_all">All</string>
+    <string name="schedules_group_ungrouped">Ungrouped</string>
+    <string name="schedules_every_day">Every day</string>
+    <string name="schedules_create_routine_fab">Create Routine</string>
+    <string name="schedules_create_routine_button">Create routine</string>
+
+    <string name="schedules_empty_all_title">No schedules yet</string>
+    <string name="schedules_empty_all_subtitle">Create your first routine to start planning your day.</string>
+    <string name="schedules_empty_filtered_title">No routines in %1$s yet.</string>
+
+    <string name="schedules_error_load">Unable to load schedules</string>
+    <string name="schedules_error_update_routine">Failed to update routine</string>
+
+    <!-- Weekday abbreviations -->
+    <string name="day_mon_short">Mon</string>
+    <string name="day_tue_short">Tue</string>
+    <string name="day_wed_short">Wed</string>
+    <string name="day_thu_short">Thu</string>
+    <string name="day_fri_short">Fri</string>
+    <string name="day_sat_short">Sat</string>
+    <string name="day_sun_short">Sun</string>
+
+    <plurals name="schedules_items_count">
+        <item quantity="one">%1$d timeline item</item>
+        <item quantity="other">%1$d timeline items</item>
+    </plurals>
 </resources>

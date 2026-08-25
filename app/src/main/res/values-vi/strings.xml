@@ -9,6 +9,12 @@
     <string name="action_ok">Đồng ý</string>
     <string name="action_back">Quay lại</string>
 
+    <string name="nav_today">Hôm nay</string>
+    <string name="nav_schedules">Lịch trình</string>
+    <string name="nav_tasks">Công việc</string>
+    <string name="nav_profile">Cá nhân</string>
+    <string name="placeholder_coming_soon">Sắp ra mắt</string>
+
     <!-- Onboarding Step 1: Rhythm (Giới hạn khung giờ chân thực) -->
     <string name="onboarding_rhythm_title">Một ngày bình thường của bạn diễn ra thế nào?</string>
     <string name="onboarding_rhythm_subtitle">Cue sử dụng khung giờ này để tránh đề xuất công việc quá sớm hoặc quá muộn.</string>
@@ -75,4 +81,33 @@
     <string name="auth_error_cancelled">Đã hủy đăng nhập Google.</string>
     <string name="auth_error_missing_config">Vui lòng điền GOOGLE_WEB_CLIENT_ID trong SupabaseClient.kt.</string>
     <string name="auth_sign_in_coming_soon">Tính năng đăng nhập bằng tài khoản đang được phát triển. Vui lòng tiếp tục với Google hoặc Onboarding.</string>
+
+    <!-- Schedules Screen (Phase D1) -->
+    <string name="schedules_title">Lịch trình</string>
+    <string name="schedules_manage_groups">Quản lý nhóm</string>
+    <string name="schedules_filter_all">Tất cả</string>
+    <string name="schedules_group_ungrouped">Chưa phân nhóm</string>
+    <string name="schedules_every_day">Mỗi ngày</string>
+    <string name="schedules_create_routine_fab">Tạo lịch trình</string>
+    <string name="schedules_create_routine_button">Tạo lịch trình</string>
+
+    <string name="schedules_empty_all_title">Chưa có lịch trình nào</string>
+    <string name="schedules_empty_all_subtitle">Tạo lịch trình đầu tiên để bắt đầu sắp xếp ngày của bạn.</string>
+    <string name="schedules_empty_filtered_title">Chưa có lịch trình nào trong nhóm %1$s.</string>
+
+    <string name="schedules_error_load">Không thể tải danh sách lịch trình</string>
+    <string name="schedules_error_update_routine">Không thể cập nhật lịch trình</string>
+
+    <!-- Weekday abbreviations -->
+    <string name="day_mon_short">T2</string>
+    <string name="day_tue_short">T3</string>
+    <string name="day_wed_short">T4</string>
+    <string name="day_thu_short">T5</string>
+    <string name="day_fri_short">T6</string>
+    <string name="day_sat_short">T7</string>
+    <string name="day_sun_short">CN</string>
+
+    <plurals name="schedules_items_count">
+        <item quantity="other">%1$d mốc thời gian</item>
+    </plurals>
 </resources>

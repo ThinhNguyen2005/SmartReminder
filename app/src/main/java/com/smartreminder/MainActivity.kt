@@ -5,10 +5,16 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.StringRes
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -19,9 +25,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.tooling.preview.PreviewScreenSizes
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.smartreminder.domain.model.ThemeMode
@@ -32,8 +37,14 @@ import com.smartreminder.ui.auth.AuthViewModel
 import com.smartreminder.ui.onboarding.OnboardingRoute
 import com.smartreminder.ui.onboarding.OnboardingViewModel
 import com.smartreminder.ui.onboarding.OnboardingViewModelFactory
+import com.smartreminder.ui.profile.ProfilePlaceholderScreen
+import com.smartreminder.ui.schedules.SchedulesRoute
+import com.smartreminder.ui.schedules.SchedulesViewModel
+import com.smartreminder.ui.schedules.SchedulesViewModelFactory
 import com.smartreminder.ui.screens.WelcomeScreen
+import com.smartreminder.ui.tasks.TasksPlaceholderScreen
 import com.smartreminder.ui.theme.SmartReminderTheme
+import com.smartreminder.ui.today.TodayPlaceholderScreen
 
 enum class OnboardingFlowStage {
     WELCOME,
@@ -101,10 +112,14 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         AppState.Main -> {
+                            val schedulesViewModel: SchedulesViewModel = viewModel(
+                                factory = SchedulesViewModelFactory(
+                                    scheduleGroupRepository = appContainer.scheduleGroupRepository,
+                                    routineRepository = appContainer.routineRepository
+                                )
+                            )
                             SmartReminderApp(
-                                onRestartOnboarding = {
-                                    appViewModel.resetOnboarding()
-                                }
+                                schedulesViewModel = schedulesViewModel
                             )
                         }
                     }
@@ -114,24 +129,23 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@PreviewScreenSizes
 @Composable
 fun SmartReminderApp(
-    onRestartOnboarding: () -> Unit = {}
+    schedulesViewModel: SchedulesViewModel
 ) {
-    var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
+    var currentDestination by rememberSaveable { mutableStateOf(AppDestination.TODAY) }
 
     NavigationSuiteScaffold(
         navigationSuiteItems = {
-            AppDestinations.entries.forEach {
+            AppDestination.entries.forEach {
                 item(
                     icon = {
                         Icon(
-                            painterResource(it.icon),
-                            contentDescription = it.label
+                            imageVector = it.icon,
+                            contentDescription = stringResource(it.labelRes)
                         )
                     },
-                    label = { Text(it.label) },
+                    label = { Text(stringResource(it.labelRes)) },
                     selected = it == currentDestination,
                     onClick = { currentDestination = it }
                 )
@@ -139,35 +153,34 @@ fun SmartReminderApp(
         }
     ) {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-            Greeting(
-                name = "Cue User",
-                modifier = Modifier.padding(innerPadding)
-            )
+            when (currentDestination) {
+                AppDestination.TODAY -> TodayPlaceholderScreen(
+                    modifier = Modifier.padding(innerPadding)
+                )
+                AppDestination.SCHEDULES -> SchedulesRoute(
+                    viewModel = schedulesViewModel,
+                    onOpenRoutine = {},
+                    onCreateRoutine = {},
+                    onManageGroups = {},
+                    modifier = Modifier.padding(innerPadding)
+                )
+                AppDestination.TASKS -> TasksPlaceholderScreen(
+                    modifier = Modifier.padding(innerPadding)
+                )
+                AppDestination.PROFILE -> ProfilePlaceholderScreen(
+                    modifier = Modifier.padding(innerPadding)
+                )
+            }
         }
     }
 }
 
-enum class AppDestinations(
-    val label: String,
-    val icon: Int,
+enum class AppDestination(
+    @param:StringRes val labelRes: Int,
+    val icon: ImageVector,
 ) {
-    HOME("Home", R.drawable.ic_home),
-    FAVORITES("Favorites", R.drawable.ic_favorite),
-    PROFILE("Profile", R.drawable.ic_account_box),
-}
-
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name! Welcome to Cue.",
-        modifier = modifier
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    SmartReminderTheme {
-        SmartReminderApp()
-    }
+    TODAY(R.string.nav_today, Icons.Default.Home),
+    SCHEDULES(R.string.nav_schedules, Icons.Default.DateRange),
+    TASKS(R.string.nav_tasks, Icons.Default.CheckCircle),
+    PROFILE(R.string.nav_profile, Icons.Default.Person),
 }

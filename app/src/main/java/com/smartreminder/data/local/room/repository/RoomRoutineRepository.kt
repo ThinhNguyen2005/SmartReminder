@@ -25,6 +25,12 @@ class RoomRoutineRepository(
         }
     }
 
+    override fun observeRoutineDetails(): Flow<List<RoutineDetails>> {
+        return dao.observeRoutines().map { list ->
+            list.map { RoutineMapper.toDetailsDomain(it) }
+        }
+    }
+
     override fun observeRoutinesByGroup(groupId: ScheduleGroupId): Flow<List<Routine>> {
         return dao.observeRoutinesByGroup(groupId.value).map { list ->
             list.map { RoutineMapper.toRoutine(it) }

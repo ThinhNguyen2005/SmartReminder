@@ -11,6 +11,7 @@ import java.time.LocalDate
 
 interface RoutineRepository {
     fun observeRoutines(): Flow<List<Routine>>
+    fun observeRoutineDetails(): Flow<List<RoutineDetails>>
     fun observeRoutinesByGroup(groupId: ScheduleGroupId): Flow<List<Routine>>
     suspend fun getRoutine(id: RoutineId): Routine?
     suspend fun getRoutineDetails(id: RoutineId): RoutineDetails?
