@@ -38,4 +38,20 @@ interface UserPreferencesRepository {
 
     /** Resets onboarding flag to false. Rhythm and goals data are preserved. */
     suspend fun resetOnboarding()
+
+    /**
+     * Atomically replaces all onboarding fields from a remote snapshot.
+     * Preserves device-local themeMode.
+     *
+     * @throws java.io.IOException if write fails
+     */
+    suspend fun replaceOnboardingPreferences(snapshot: com.smartreminder.domain.model.OnboardingPreferencesSnapshot)
+
+    /**
+     * Clears all onboarding and rhythm preferences, reverting to defaults.
+     * Preserves device-local themeMode.
+     *
+     * @throws java.io.IOException if write fails
+     */
+    suspend fun clearOnboardingPreferences()
 }
