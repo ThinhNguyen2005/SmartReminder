@@ -122,6 +122,7 @@ fun WelcomeScreenContent(
                 )
                 Toast.makeText(context, toastMessage, Toast.LENGTH_SHORT).show()
                 onLoginSuccess()
+                onAction(AuthUiAction.Reset)
             }
             else -> {}
         }

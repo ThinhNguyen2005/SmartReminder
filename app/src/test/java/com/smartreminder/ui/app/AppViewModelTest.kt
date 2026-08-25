@@ -124,11 +124,32 @@ class AppViewModelTest {
         assertEquals(customWake, fakeRepository.currentPreferences.wakeUpTime)
         assertEquals(AppState.Onboarding, viewModel.appState.value)
     }
+
+    @Test
+    fun `given repository write throws IOException, when completeOnboarding called, then error is captured and viewModelScope does not crash`() = runTest {
+        fakeRepository.shouldThrowOnWrite = true
+        val viewModel = AppViewModel(fakeRepository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.appState.collect {}
+        }
+        advanceUntilIdle()
+
+        // When
+        viewModel.completeOnboardingForAuthenticatedUser()
+        advanceUntilIdle()
+
+        // Then: Error captured gracefully, not crashed
+        assertEquals("Simulated disk error", viewModel.errorMessage.value)
+        viewModel.clearErrorMessage()
+        assertEquals(null, viewModel.errorMessage.value)
+    }
 }
 
 private class FakeAppRepository : UserPreferencesRepository {
     private val _preferencesFlow = MutableStateFlow(UserPreferences())
     override val preferences: Flow<UserPreferences> = _preferencesFlow.asStateFlow()
+
+    var shouldThrowOnWrite: Boolean = false
 
     val currentPreferences: UserPreferences
         get() = _preferencesFlow.value
@@ -142,6 +163,7 @@ private class FakeAppRepository : UserPreferencesRepository {
         sleepTime: LocalTime,
         goals: Set<UserGoal>
     ) {
+        if (shouldThrowOnWrite) throw java.io.IOException("Simulated disk error")
         _preferencesFlow.value = _preferencesFlow.value.copy(
             wakeUpTime = wakeUpTime,
             sleepTime = sleepTime,
@@ -151,6 +173,7 @@ private class FakeAppRepository : UserPreferencesRepository {
     }
 
     override suspend fun updateRhythm(wakeUpTime: LocalTime, sleepTime: LocalTime) {
+        if (shouldThrowOnWrite) throw java.io.IOException("Simulated disk error")
         _preferencesFlow.value = _preferencesFlow.value.copy(
             wakeUpTime = wakeUpTime,
             sleepTime = sleepTime
@@ -158,14 +181,17 @@ private class FakeAppRepository : UserPreferencesRepository {
     }
 
     override suspend fun updateGoals(goals: Set<UserGoal>) {
+        if (shouldThrowOnWrite) throw java.io.IOException("Simulated disk error")
         _preferencesFlow.value = _preferencesFlow.value.copy(goals = goals)
     }
 
     override suspend fun updateThemeMode(mode: ThemeMode) {
+        if (shouldThrowOnWrite) throw java.io.IOException("Simulated disk error")
         _preferencesFlow.value = _preferencesFlow.value.copy(themeMode = mode)
     }
 
     override suspend fun resetOnboarding() {
+        if (shouldThrowOnWrite) throw java.io.IOException("Simulated disk error")
         _preferencesFlow.value = _preferencesFlow.value.copy(onboardingCompleted = false)
     }
 }
