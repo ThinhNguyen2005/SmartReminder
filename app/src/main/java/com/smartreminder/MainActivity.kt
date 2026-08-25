@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.smartreminder.di.AppContainer
 import com.smartreminder.domain.model.ThemeMode
 import com.smartreminder.ui.app.AppState
 import com.smartreminder.ui.app.AppViewModel
@@ -37,7 +38,11 @@ import com.smartreminder.ui.auth.AuthViewModel
 import com.smartreminder.ui.onboarding.OnboardingRoute
 import com.smartreminder.ui.onboarding.OnboardingViewModel
 import com.smartreminder.ui.onboarding.OnboardingViewModelFactory
-import com.smartreminder.ui.profile.ProfilePlaceholderScreen
+import com.smartreminder.ui.profile.ProfileRoute
+import com.smartreminder.ui.profile.ProfileScreen
+import com.smartreminder.ui.profile.ProfileUiState
+import com.smartreminder.ui.profile.ProfileViewModel
+import com.smartreminder.ui.profile.ProfileViewModelFactory
 import com.smartreminder.ui.schedules.SchedulesRoute
 import com.smartreminder.ui.schedules.SchedulesViewModel
 import com.smartreminder.ui.schedules.SchedulesViewModelFactory
@@ -89,7 +94,7 @@ class MainActivity : ComponentActivity() {
                                     WelcomeScreen(
                                         viewModel = authViewModel,
                                         onLoginSuccess = {
-                                            appViewModel.completeOnboardingForAuthenticatedUser()
+                                            flowStage = OnboardingFlowStage.ONBOARDING_STEPS
                                         },
                                         onContinueWithEmail = {
                                             flowStage = OnboardingFlowStage.ONBOARDING_STEPS
@@ -119,7 +124,11 @@ class MainActivity : ComponentActivity() {
                                 )
                             )
                             SmartReminderApp(
-                                schedulesViewModel = schedulesViewModel
+                                schedulesViewModel = schedulesViewModel,
+                                appContainer = appContainer,
+                                onRestartOnboarding = {
+                                    appViewModel.resetOnboarding()
+                                }
                             )
                         }
                     }
@@ -131,7 +140,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun SmartReminderApp(
-    schedulesViewModel: SchedulesViewModel
+    schedulesViewModel: SchedulesViewModel,
+    appContainer: AppContainer? = null,
+    onRestartOnboarding: () -> Unit = {}
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.TODAY) }
 
@@ -167,9 +178,33 @@ fun SmartReminderApp(
                 AppDestination.TASKS -> TasksPlaceholderScreen(
                     modifier = Modifier.padding(innerPadding)
                 )
-                AppDestination.PROFILE -> ProfilePlaceholderScreen(
-                    modifier = Modifier.padding(innerPadding)
-                )
+                AppDestination.PROFILE -> {
+                    if (appContainer != null) {
+                        val profileViewModel: ProfileViewModel = viewModel(
+                            factory = ProfileViewModelFactory(
+                                repository = appContainer.userPreferencesRepository,
+                                onSignedOut = onRestartOnboarding
+                            )
+                        )
+                        ProfileRoute(
+                            viewModel = profileViewModel,
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    } else {
+                        ProfileScreen(
+                            uiState = ProfileUiState.Loaded(
+                                displayName = "Alex",
+                                email = "alex@email.com",
+                                avatarUrl = null,
+                                wakeUpTime = java.time.LocalTime.of(6, 30),
+                                sleepTime = java.time.LocalTime.of(22, 30),
+                                themeMode = ThemeMode.SYSTEM
+                            ),
+                            onAction = {},
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
+                }
             }
         }
     }
