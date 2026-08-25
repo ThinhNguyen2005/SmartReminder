@@ -1,155 +1,262 @@
-# Cue (SmartReminder) — Onboarding & Core Architecture Roadmap
+# Cue (SmartReminder) — Onboarding to Core Architecture Contract
 
-> **Tài liệu bàn giao kiến trúc:** Giải thích chi tiết toàn bộ luồng dữ liệu Onboarding, mục đích thực sự của từng màn hình, cách lưu trữ dữ liệu để tích hợp với Core Business Logic sau này, và lộ trình phát triển các màn hình tiếp theo.
+> **Tài liệu Handoff Kiến trúc Chính thức:** Định nghĩa ranh giới phân tách (Boundary), hợp đồng dữ liệu (Data Contract) và các bất biến kiến trúc (Architectural Invariants) chuyển giao từ tầng Bootstrap/Onboarding sang tầng Core Engine (ScheduleGroup, Schedule/Routine, Task, ReminderRule, FreeSlotScheduler).
 
 ---
 
-## 1. 🎯 Tổng quan Luồng Onboarding & Mục đích Sản phẩm
+## 1. 🎯 Mục Đích của Tầng Bootstrap / Onboarding
 
-Onboarding trong Cue không phải là "vài trang giới thiệu tĩnh (intro slides)", mà là **bước thu thập tham số cấu hình đầu vào bắt buộc** cho toàn bộ **AI Scheduling & Reminder Engine**.
+Onboarding trong Cue không phải là các slide giới thiệu tính năng, mà là **bước thu thập tham số cấu hình đầu vào toàn cục (Global Boundary Constraints)** cho toàn bộ hệ thống lập lịch thông minh:
 
 ```mermaid
 graph TD
-    A[Step 1: Rhythm] -->|Wake 07:00, Sleep 23:30| D[OnboardingUiState]
-    B[Step 2: Goals] -->|Tasks, Routines, Planning| D
-    C[Step 3: Simulation] -->|Trust & Mental Model| D
-    D -->|onFinishOnboarding| E[UserPreferencesRepository - DataStore]
-    E --> F[Planning Window & Quiet Hours]
-    E --> G[AI Priority Weights]
-    E --> H[Today Dashboard / Scheduler Engine]
+    subgraph Bootstrap Flow
+        A[Step 1: Rhythm] -->|Wake 07:00, Sleep 23:30| D[OnboardingUiState]
+        B[Step 2: Goals] -->|Tasks, Routines, Planning| D
+        C[Step 3: Simulation] -->|Explainable AI Trust Sandbox| D
+        D -->|Complete / Skip| E[UserPreferencesRepository - DataStore]
+    end
+
+    subgraph Core Engine Boundary
+        E -->|DailyRhythm| F[Planning Window & Quiet Hours]
+        E -->|Personalization Metadata| G[Template Recommendations]
+        F --> H[FreeSlotScheduler & Today Dashboard]
+    end
 ```
 
----
-
-## 2. 🧩 Chi tiết Dữ liệu từng Step & Ứng dụng Thực tế
-
-### ☀️ Step 1: Rhythm (Wake up & Sleep Times)
-* **Dữ liệu thu thập:**
-  - `wakeUpTime: LocalTime` (Mặc định: `07:00`)
-  - `sleepTime: LocalTime` (Mặc định: `23:30`)
-* **Hệ quả tính toán (Domain Logic):**
-  - `Planning Window` = Khoảng thời gian thức (VD: `16h 30m`). Đây là vùng Cue được phép tìm Free Slots để xếp việc.
-  - `Quiet Hours` = Khung giờ nghỉ ngơi (VD: `7h 30m`). Vùng Cue bảo vệ giấc ngủ của người dùng.
-* **Tích hợp sau này:**
-  1. **Schedule Engine:** Thuật toán xếp lịch tự động sẽ chặn không bao giờ gợi ý task ngoài Planning Window (trừ khi người dùng chủ động ép buộc).
-  2. **Notification & Quiet Hours Engine:** Cấu hình thông báo sẽ mặc định tắt chuông/nhắc nhở không khẩn cấp trong Quiet Hours (kết nối với cài đặt trong `SettingsScreen`).
+### Ý nghĩa từng bước Onboarding:
+* **Step 1: Rhythm (`wakeUpTime`, `sleepTime`)**: Xác định `Planning Window` (khoảng thời gian thức cho phép tìm Free Slots để xếp task) và `Quiet Hours` (khoảng thời gian nghỉ ngơi cần bảo vệ giấc ngủ).
+* **Step 2: Goals (`selectedGoals: Set<UserGoal>`)**: Metadata cá nhân hóa dùng để xếp thứ tự ưu tiên gợi ý và gợi ý templates lần đầu. **Không phải thực thể Room**.
+* **Step 3: Timeline Simulation**: **Interactive Mental Model & Trust-Building Sandbox** (Mô phỏng mẫu giúp người dùng hiểu cơ chế Explainable AI trước khi vào app thật).
 
 ---
 
-### 🎯 Step 2: Goals (Mục tiêu Cá nhân hóa)
-* **Dữ liệu thu thập:**
-  - `selectedGoals: Set<OnboardingGoal>`:
-    - `TASKS`: Quản lý công việc, deadline, nhắc nhở quan trọng.
-    - `ROUTINES`: Xây dựng thói quen lặp lại hàng ngày/hàng tuần.
-    - `PLANNING`: Tối ưu hóa thời gian, AI tìm khoảng trống (Free Slots).
-    - `STUDY`: Học tập trung, Pomodoro, phiên học chuyên sâu.
-    - `TEAMWORK`: Phối hợp nhóm, lịch chung.
-* **Tích hợp sau này:**
-  1. **AI Weight Vector:** Nếu người dùng chọn `PLANNING` + `STUDY`, thuật toán ưu tiên tạo các khối thời gian tập trung 90–120 phút. Nếu chọn `TASKS`, ưu tiên nhắc nhở deadline và checklist.
-  2. **Home Widgets:** Quyết định card/section nào sẽ xuất hiện đầu tiên trên màn hình chính (Today Dashboard).
-  3. **Initial Templates:** Gợi ý các template task/routine phù hợp ngay trong lần đầu tạo việc.
+## 2. ⚡ Kiến Trúc Luồng Trạng Thái Reactive (Đã Đóng Băng)
 
----
-
-### 🧠 Step 3: Timeline Simulation (Mục tiêu cốt lõi là gì?)
-> **Câu hỏi:** *"Mục tiêu ở trang step 3 là để làm gì?"*
-
-* **Mục đích:** Step 3 **KHÔNG PHẢI** để người dùng nhập lịch của họ, mà là **Interactive Mental Model & Trust-Building Sandbox** (Mô phỏng tương tác giúp xây dựng niềm tin vào nguyên lý làm việc của Cue).
-* **Vấn đề tâm lý người dùng:** Đa số người dùng hoài nghi: *"AI nói thông minh nhưng nó sẽ xếp lịch cho tôi như thế nào?"*.
-* **Giải pháp của Step 3:**
-  1. Cho người dùng thấy một kịch bản ngày làm việc mẫu:
-     - 09:00: Giờ học trên lớp (`Class`)
-     - 13:30: Họp dự án nhóm (`Project meeting`)
-     - 17:00: Tập thể thao (`Workout`)
-  2. **Khoảng trống tự nhiên (Free Slot):** Giữa 13:30 và 17:00 có một khoảng trống 2 tiếng.
-  3. **Đề xuất của Cue:** Cue tự động đề xuất: *"Bắt đầu làm bài tập · 15:00"*.
-  4. **Minh bạch AI (Explainable AI):** Khi người dùng chạm vào đề xuất, một tooltip xuất hiện giải thích lý do: *"Tại sao lại là 15:00? Phát hiện khoảng trống 2 tiếng giữa cuộc họp và giờ tập thể thao"*.
-* **Thông điệp cốt lõi:** *"Cue suggests. You stay in control."* (Cue gợi ý, bạn nắm quyền quyết định).
-* **Kết quả:** Người dùng hiểu 100% cách app vận hành trước khi bấm CTA *"Start using Cue"* để vào màn hình chính.
-
----
-
-## 3. 💾 Thiết kế Lưu Trữ Dữ Liệu (Data Persistence Architecture)
-
-Dữ liệu Onboarding được lưu thông qua **Jetpack DataStore Preferences** để toàn bộ ứng dụng có thể quan sát dạng `Flow`:
-
-```kotlin
-// Data Model lưu trữ
-data class UserPreferences(
-    val wakeUpTime: LocalTime,
-    val sleepTime: LocalTime,
-    val selectedGoals: Set<OnboardingGoal>,
-    val hasCompletedOnboarding: Boolean
-)
-```
-
-### Flow chuyển tiếp từ Onboarding sang Main App:
-1. Người dùng bấm **"Start using Cue"** ở Step 3 (hoặc bấm **"Skip"** ở bất kỳ step nào).
-2. `OnboardingViewModel.completeOnboarding()` được gọi:
-   ```kotlin
-   fun completeOnboarding() {
-       viewModelScope.launch {
-           userPreferencesRepository.saveOnboardingData(
-               wakeTime = _uiState.value.wakeUpTime,
-               sleepTime = _uiState.value.sleepTime,
-               goals = _uiState.value.selectedGoals
-           )
-           userPreferencesRepository.setOnboardingCompleted(true)
-           _events.emit(OnboardingEvent.NavigateToHome)
-       }
-   }
-   ```
-3. `MainActivity` quan sát `hasCompletedOnboarding`:
-   - Nếu `false` $\rightarrow$ Render `OnboardingScreen`.
-   - Nếu `true` $\rightarrow$ Render `HomeScreen` (Main App).
-
----
-
-## 4. 🗺️ Lộ trình Phát triển Các Màn hình Tiếp theo (Next Phase Roadmap)
-
-Sau khi hoàn tất Onboarding, ứng dụng sẽ triển khai các module sau:
+Navigation trong Cue là **Derived State (Trạng thái suy diễn)** dựa trên DataStore Flow, **không dùng Navigation Side Effects / Events**:
 
 ```text
-app/src/main/java/com/smartreminder/
-├── data/
-│   ├── local/
-│   │   ├── database/ (Room Database: TaskEntity, RoutineEntity, ScheduleEventEntity)
-│   │   └── preferences/ (DataStore: UserPreferencesRepository)
-│   └── repository/ (TaskRepositoryImpl, RoutineRepositoryImpl)
-├── domain/
-│   ├── model/ (Task, Routine, FreeSlot, Priority)
-│   ├── time/ (TimeCalculator, FreeSlotCalculator)
-│   ├── scheduler/ (ScheduleEngine, ConflictDetector)
-│   └── reminder/ (ReminderEngine, QuietHoursRule)
-└── ui/
-    ├── home/ (Today Dashboard: Timeline 24h, AI Suggestion Card, Task List)
-    ├── task/ (TaskDetail, CreateTaskBottomSheet)
-    ├── routines/ (RoutineList, CreateRoutineScreen)
-    └── settings/ (QuietHoursSetting, RhythmSetting, NotificationPreferences)
+OnboardingAction.Complete / Skip
+        ↓
+OnboardingViewModel.completeOnboarding()
+        ↓
+UserPreferencesRepository.completeOnboarding()
+        ↓ (1 atomic dataStore.edit {})
+DataStore<Preferences>
+        ↓
+Flow<UserPreferences>
+        ↓
+AppViewModel.appState (StateFlow)
+        ↓
+AppState.Main
+        ↓
+MainActivity Crossfade → SmartReminderApp()
 ```
 
-### Các tính năng cốt lõi sẽ kết nối trực tiếp với Onboarding:
-
-1. **Màn hình chính (`HomeScreen` / `TodayTimelineScreen`):**
-   - Đọc `wakeUpTime` và `sleepTime` để vẽ thanh **Today 24-Hour Timeline Bar** ở đầu trang.
-   - Hiển thị các block sự kiện trong ngày và các khoảng trống **Free Slots**.
-   - Nếu có Free Slot $\rightarrow$ Hiển thị **AI Suggestion Card** đề xuất task phù hợp nhất dựa trên `selectedGoals`.
-
-2. **Công cụ xếp lịch thông minh (`FreeSlotCalculator` & `ConflictDetector`):**
-   - `FreeSlotCalculator`: `Planning Window − Lịch cố định − Buffer = Free Slots`.
-   - Kiểm tra xung đột: Khi tạo task mới, cảnh báo nếu trùng giờ hoặc sát Quiet Hours.
-
-3. **Cài đặt & Tùy chỉnh (`SettingsScreen`):**
-   - Cho phép người dùng xem lại và chỉnh sửa lại giờ Thức/Ngủ (`Rhythm`) và Mục tiêu (`Goals`) bất kỳ lúc nào.
-   - Cài đặt chi tiết cho Quiet Hours:
-     - `○ Không bao giờ nhắc nhở`
-     - `● Chỉ nhắc deadline khẩn cấp`
-     - `○ Cho phép mọi nhắc nhở`
+### Invariants:
+* **Không tồn tại `OnboardingEvent.Completed`**: Xóa bỏ hoàn toàn event callback. `OnboardingRoute` là stateless bridge:
+  ```kotlin
+  OnboardingRoute(viewModel = onboardingViewModel)
+  ```
+* **Stateless Screen**: `OnboardingScreen` chỉ nhận `uiState` và phát `onAction`, khóa vuốt tay pager (`userScrollEnabled = false`) để ViewModel làm Single Source of Truth.
 
 ---
 
-## 5. 🛠️ Quy chuẩn Kiểm thử & Code Clean (Bảo lưu cho Bước tiếp theo)
+## 3. 🧭 Phân Định Trách Nhiệm `AppViewModel` (Root Orchestrator)
 
-* **Toàn bộ Domain Engines** (`FreeSlotCalculator`, `ConflictDetector`, `RepeatRule`, `ReminderEngine`) bắt buộc viết Unit Test theo mẫu **AAA / Given-When-Then** trước khi tích hợp UI.
-* **100% Design Tokens**: Màu sắc qua `Color.kt`, Khoảng cách qua `CueSpacing`, Font qua `MaterialTheme.typography`.
-* **100% Song ngữ**: Mọi text mới phải khai báo đồng thời ở `values/strings.xml` và `values-vi/strings.xml`.
+`AppViewModel` là bộ điều phối gốc ở mức ứng dụng, **không phải God ViewModel**:
+
+| Được phép làm (`✓`) | Tuyệt đối cấm (`✗`) |
+|---|---|
+| Xác định trạng thái gốc `appState` (`Loading`, `Onboarding`, `Main`) | Không render hay chứa logic UI |
+| Cung cấp `themeMode` (`SYSTEM`, `LIGHT`, `DARK`) | Không phụ thuộc trực tiếp vào DataStore implementation |
+| Hoàn tất onboarding khi đăng nhập thành công (`completeOnboardingForAuthenticatedUser()`) | Không chứa business logic của Schedule, Routine, Task |
+| Reset onboarding (`resetOnboarding()`) | Không gọi trực tiếp Room DAOs |
+| Bảo toàn preferences cũ khi authenticate | |
+| Bắt lỗi `IOException` từ các thao tác ghi gốc | |
+
+---
+
+## 4. 🗂️ Phân Tầng Trạng Thái: `AppState` vs `OnboardingFlowStage`
+
+Ứng dụng phân định rạch ròi 2 máy trạng thái độc lập:
+
+```text
+AppState (Toàn cục - AppViewModel)
+├── Loading    (Tránh flicker/flash khi khởi động cold-start)
+├── Onboarding (User chưa hoàn thành cấu hình khởi tạo)
+│     │
+│     └── OnboardingFlowStage (Cục bộ - MainActivity / WelcomeFlow)
+│           ├── WELCOME          (Đăng nhập Google / Tiếp tục với Email)
+│           └── ONBOARDING_STEPS (3 bước cấu hình Rhythm, Goals, Simulation)
+│
+└── Main       (User đã có cấu hình hợp lệ → SmartReminderApp)
+```
+
+* **`AppState`** trả lời câu hỏi: *"Người dùng đã hoàn tất khởi tạo ứng dụng hay chưa?"*
+* **`OnboardingFlowStage`** trả lời: *"Người dùng đang ở bước nào trong tiến trình giới thiệu/đăng nhập?"*
+
+---
+
+## 5. 🔒 Quy Tắc Vòng Đời Xác Thực (Auth One-Shot State Invariant)
+
+Trạng thái thành công của Auth là **Transient Event (Tạm thời)**, bắt buộc phải được consume:
+
+```text
+AuthUiState.Success
+        ↓
+WelcomeScreen (LaunchedEffect)
+        ↓
+Toast thông báo & onLoginSuccess()
+        ↓
+onAction(AuthUiAction.Reset) → AuthUiState.Idle
+```
+
+> **Invariant:** `AuthUiState.Success` bắt buộc phải trở về `AuthUiState.Idle` ngay sau khi xử lý. Không bao giờ lưu giữ `Success` lâu dài trong ViewModel để tránh lỗi tự động nhảy vào Main khi người dùng thực hiện `Reset Onboarding`.
+
+---
+
+## 6. 🏛️ Ranh Giới Bất Biến: DataStore vs Room Database
+
+Đây là ranh giới kiến trúc cốt lõi **bắt buộc tuân thủ 100%** trong toàn bộ quá trình phát triển:
+
+```text
+                  PREFERENCES
+                ┌──────────────┐
+                │  DataStore   │  (Jetpack DataStore Preferences)
+                └──────┬───────┘
+                       │
+                UserPreferences (Domain Model)
+                       │
+          ┌────────────┼────────────┐
+          │            │            │
+       wakeTime     sleepTime     goals
+          │            │            │
+          └────────────┼────────────┘
+                       ↓
+               CORE DOMAIN INPUT
+
+
+                  CORE DATA
+                ┌──────────────┐
+                │     Room     │  (SQLite / Room Database)
+                └──────┬───────┘
+                       │
+          ┌────────────┼──────────────┐
+          ↓            ↓              ↓
+    ScheduleGroup     Task      ReminderRule
+```
+
+### Phân công trách nhiệm lưu trữ:
+* **Jetpack DataStore Preferences**:
+  - `wakeUpTime: LocalTime` (lưu dạng `minutes-of-day: Int`)
+  - `sleepTime: LocalTime` (lưu dạng `minutes-of-day: Int`)
+  - `goals: Set<UserGoal>` (lưu dạng `Set<String>` storageKey)
+  - `themeMode: ThemeMode` (lưu dạng `String` storageKey)
+  - `onboardingCompleted: Boolean`
+* **Room Database**:
+  - `ScheduleGroup` (Nhóm lịch trình: Work, Study, Personal Routine)
+  - `Schedule` / `Routine` (Lịch cố định, thói quen lặp lại)
+  - `Task` (Công việc, deadline, sub-tasks)
+  - `ReminderRule` (Quy tắc nhắc nhở, khoảng cách báo trước)
+  - `ExecutionHistory` (Lịch sử hoàn thành, nhật ký thực thi)
+  - `ScheduleOverrides` (Ngoại lệ ngày nghỉ, đổi giờ đột xuất)
+
+---
+
+## 7. 🚫 Không Nhân Bản (Duplicate) wake/sleep sang Room
+
+* **Cấm:** Không tạo các bảng như `CoreSettingsEntity` hay lưu `wakeUpTime`/`sleepTime` lặp lại trong Room.
+* **Chuẩn:** Core Engine nhận dữ liệu thông qua Domain Abstraction:
+  ```kotlin
+  data class DailyRhythm(
+      val wakeUpTime: LocalTime,
+      val sleepTime: LocalTime
+  )
+  ```
+  `FreeSlotScheduler` nhận `DailyRhythm` từ `UserPreferencesRepository`, **không cần biết và không được biết dữ liệu đó đến từ DataStore**.
+
+---
+
+## 8. 🏷️ `UserGoal` KHÔNG Phải Thực Thể Core
+
+* `UserGoal` (`TASKS`, `ROUTINES`, `PLANNING`, `STUDY`, `TEAMWORK`) chỉ là **Personalization Metadata (Dữ liệu định hướng cá nhân hóa)**.
+* **Cấm:**
+  - Không tạo Foreign Key từ `Task` hoặc `ScheduleGroup` trỏ tới `UserGoal`.
+  - Không bắt buộc `ScheduleGroup` phải có trường `UserGoal`.
+* **Ứng dụng hợp lệ:** Dùng `goals` để xếp thứ tự các **Template Recommendations** khi người dùng tạo mới Schedule/Routine.
+
+---
+
+## 9. 🛡️ Không Tự Ý Tạo Dữ Liệu Lịch Trình Khi Onboarding Complete
+
+* Khi người dùng hoàn thành Onboarding, ứng dụng **KHÔNG tự động tạo bất kỳ `ScheduleGroup` hay `Task` nào vào Room**.
+* **Luồng chuẩn:**
+  ```text
+  Complete Onboarding
+          ↓
+     AppState.Main
+          ↓
+  HomeScreen hiển thị:
+  "Tạo lịch trình đầu tiên của bạn" + Gợi ý Templates theo UserGoal
+          ↓
+  Người dùng chủ động xác nhận → Mới lưu vào Room
+  ```
+* **Decoupling Invariant:** `OnboardingViewModel` có **ZERO dependencies** đối với `ScheduleRepository` hay Room Database.
+
+---
+
+## 10. 📐 Sơ Đồ Phụ Thuộc Toàn Ứng Dụng (Target Architecture)
+
+```text
+                        UI LAYER
+                           │
+         ┌─────────────────┼──────────────────┐
+         │                 │                  │
+   AppViewModel      OnboardingVM       Core ViewModels
+         │                 │            (Home, Schedule, Task)
+         │                 │                  │
+         │                 │                  ↓
+         │                 │            Core Use Cases
+         │                 │        (CalculateFreeSlots, ...)
+         │                 │                  │
+         └────────┬────────┘                  ↓
+                  │                     Core Repositories
+                  ↓                 (ScheduleRepo, TaskRepo)
+      UserPreferencesRepository               ▲
+             «interface»                      │
+                  ▲                     Room Database
+                  │
+  DataStoreUserPreferencesRepo
+                  │
+              DataStore
+```
+
+### Quy tắc bất biến về truy xuất chéo:
+- `FreeSlotScheduler` $\rightarrow$ Đọc `DailyRhythm` qua `UserPreferencesRepository`.
+- `FreeSlotScheduler` $\boldsymbol{\times}$ **Không bao giờ** import DataStore.
+- `TaskRepository` / `ScheduleRepository` $\boldsymbol{\times}$ **Không bao giờ** import DataStore.
+- `OnboardingViewModel` $\boldsymbol{\times}$ **Không bao giờ** import Room Database.
+
+---
+
+## 📋 11. Hợp Đồng Bàn Giao (Onboarding Output Contract)
+
+Sau khi Onboarding hoàn tất và chuyển sang `AppState.Main`, Core Engine được phép **giả định (assume)** các điều kiện sau:
+
+| # | Invariant được đảm bảo | Ghi chú |
+|---|---|---|
+| **1** | `UserPreferences` luôn khả dụng | Luôn có dữ liệu (kể cả khi chạy offline). |
+| **2** | `wakeUpTime` luôn là `LocalTime` hợp lệ | Mapper đảm bảo fallback an toàn về `07:00` nếu lỗi. |
+| **3** | `sleepTime` luôn là `LocalTime` hợp lệ | Mapper đảm bảo fallback an toàn về `23:30` nếu lỗi. |
+| **4** | `goals` có thể rỗng (`emptySet()`) | Core phải hoạt động hoàn hảo ngay cả khi user bỏ chọn hết goals. |
+| **5** | `onboardingCompleted = true` | Đảm bảo không bị văng lại màn hình Onboarding. |
+| **6** | `themeMode` luôn có giá trị hợp lệ | Mặc định `ThemeMode.SYSTEM`. |
+| **7** | **Không có `ScheduleGroup` nào được đảm bảo tồn tại sẵn** | Core phải xử lý trạng thái Empty State hoàn hảo. |
+| **8** | **Không có `Task` nào được đảm bảo tồn tại sẵn** | Core phải hiển thị CTA tạo task đầu tiên. |
+| **9** | **Không có `ReminderRule` nào được đảm bảo tồn tại sẵn** | Dùng default reminder rules khi tạo task mới. |
+| **10** | **Toàn bộ hệ thống hoạt động 100% Offline** | Không phụ thuộc mạng Internet cho các tính năng cốt lõi. |
+
+---
+
+> 📌 **Kết luận:** Tài liệu này đóng vai trò là **Hợp đồng Kiến trúc bất biến (Frozen Contract)**. Khi triển khai module `ScheduleGroup`, toàn bộ thiết kế sẽ tuân thủ nghiêm ngặt các ranh giới và giả định đã quy định ở trên.
