@@ -87,14 +87,18 @@ class MainActivity : ComponentActivity() {
                         }
                         AppState.Onboarding -> {
                             var flowStage by rememberSaveable { mutableStateOf(OnboardingFlowStage.WELCOME) }
-                            val authViewModel: AuthViewModel = viewModel()
+                            val authViewModel: AuthViewModel = viewModel(
+                                factory = com.smartreminder.ui.auth.AuthViewModelFactory(appContainer.userPreferencesSyncCoordinator)
+                            )
 
                             when (flowStage) {
                                 OnboardingFlowStage.WELCOME -> {
                                     WelcomeScreen(
                                         viewModel = authViewModel,
-                                        onLoginSuccess = {
-                                            flowStage = OnboardingFlowStage.ONBOARDING_STEPS
+                                        onLoginSuccess = { needsOnboarding ->
+                                            if (needsOnboarding) {
+                                                flowStage = OnboardingFlowStage.ONBOARDING_STEPS
+                                            }
                                         },
                                         onContinueWithEmail = {
                                             flowStage = OnboardingFlowStage.ONBOARDING_STEPS
@@ -110,7 +114,10 @@ class MainActivity : ComponentActivity() {
                                 }
                                 OnboardingFlowStage.ONBOARDING_STEPS -> {
                                     val onboardingViewModel: OnboardingViewModel = viewModel(
-                                        factory = OnboardingViewModelFactory(appContainer.userPreferencesRepository)
+                                        factory = OnboardingViewModelFactory(
+                                            repository = appContainer.userPreferencesRepository,
+                                            syncCoordinator = appContainer.userPreferencesSyncCoordinator
+                                        )
                                     )
                                     OnboardingRoute(viewModel = onboardingViewModel)
                                 }
@@ -125,10 +132,7 @@ class MainActivity : ComponentActivity() {
                             )
                             SmartReminderApp(
                                 schedulesViewModel = schedulesViewModel,
-                                appContainer = appContainer,
-                                onRestartOnboarding = {
-                                    appViewModel.resetOnboarding()
-                                }
+                                appContainer = appContainer
                             )
                         }
                     }
@@ -141,8 +145,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SmartReminderApp(
     schedulesViewModel: SchedulesViewModel,
-    appContainer: AppContainer? = null,
-    onRestartOnboarding: () -> Unit = {}
+    appContainer: AppContainer? = null
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.TODAY) }
 
@@ -183,7 +186,7 @@ fun SmartReminderApp(
                         val profileViewModel: ProfileViewModel = viewModel(
                             factory = ProfileViewModelFactory(
                                 repository = appContainer.userPreferencesRepository,
-                                onSignedOut = onRestartOnboarding
+                                syncCoordinator = appContainer.userPreferencesSyncCoordinator
                             )
                         )
                         ProfileRoute(

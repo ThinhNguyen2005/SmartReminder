@@ -194,4 +194,25 @@ private class FakeAppRepository : UserPreferencesRepository {
         if (shouldThrowOnWrite) throw java.io.IOException("Simulated disk error")
         _preferencesFlow.value = _preferencesFlow.value.copy(onboardingCompleted = false)
     }
+
+    override suspend fun replaceOnboardingPreferences(snapshot: com.smartreminder.domain.model.OnboardingPreferencesSnapshot) {
+        if (shouldThrowOnWrite) throw java.io.IOException("Simulated disk error")
+        _preferencesFlow.value = _preferencesFlow.value.copy(
+            wakeUpTime = snapshot.wakeUpTime,
+            sleepTime = snapshot.sleepTime,
+            goals = snapshot.goals,
+            onboardingCompleted = snapshot.onboardingCompleted
+        )
+    }
+
+    override suspend fun clearOnboardingPreferences() {
+        if (shouldThrowOnWrite) throw java.io.IOException("Simulated disk error")
+        val defaults = UserPreferences()
+        _preferencesFlow.value = _preferencesFlow.value.copy(
+            wakeUpTime = defaults.wakeUpTime,
+            sleepTime = defaults.sleepTime,
+            goals = defaults.goals,
+            onboardingCompleted = false
+        )
+    }
 }

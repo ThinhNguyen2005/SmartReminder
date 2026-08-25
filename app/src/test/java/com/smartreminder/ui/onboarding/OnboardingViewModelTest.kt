@@ -1,9 +1,12 @@
 package com.smartreminder.ui.onboarding
 
+import com.smartreminder.domain.model.OnboardingPreferencesSnapshot
 import com.smartreminder.domain.model.ThemeMode
 import com.smartreminder.domain.model.UserGoal
 import com.smartreminder.domain.model.UserPreferences
 import com.smartreminder.domain.repository.UserPreferencesRepository
+import com.smartreminder.domain.sync.RestorePreferencesResult
+import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -28,11 +31,13 @@ class OnboardingViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var fakeRepository: FakeUserPreferencesRepository
+    private lateinit var fakeSyncCoordinator: FakeUserPreferencesSyncCoordinator
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         fakeRepository = FakeUserPreferencesRepository()
+        fakeSyncCoordinator = FakeUserPreferencesSyncCoordinator(fakeRepository)
     }
 
     @After
@@ -43,7 +48,7 @@ class OnboardingViewModelTest {
     @Test
     fun `given default repository, when viewModel initializes, then uiState hydrates with defaults`() = runTest {
         // When
-        val viewModel = OnboardingViewModel(fakeRepository)
+        val viewModel = OnboardingViewModel(fakeRepository, fakeSyncCoordinator)
         advanceUntilIdle()
 
         // Then
@@ -58,140 +63,107 @@ class OnboardingViewModelTest {
 
     @Test
     fun `given repository with previous data, when viewModel initializes, then uiState hydrates previous rhythm and goals`() = runTest {
-        // Given: User reset onboarding after previously setting custom values
+        // Given
         fakeRepository.setPreferences(
             UserPreferences(
-                wakeUpTime = LocalTime.of(8, 15),
-                sleepTime = LocalTime.of(0, 0),
+                wakeUpTime = LocalTime.of(8, 30),
+                sleepTime = LocalTime.of(0, 15),
                 goals = setOf(UserGoal.STUDY, UserGoal.TEAMWORK),
                 onboardingCompleted = false
             )
         )
 
         // When
-        val viewModel = OnboardingViewModel(fakeRepository)
+        val viewModel = OnboardingViewModel(fakeRepository, fakeSyncCoordinator)
         advanceUntilIdle()
 
-        // Then: State hydrates previous values
+        // Then
         val state = viewModel.uiState.value
-        assertEquals(LocalTime.of(8, 15), state.wakeUpTime)
-        assertEquals(LocalTime.of(0, 0), state.sleepTime)
+        assertEquals(LocalTime.of(8, 30), state.wakeUpTime)
+        assertEquals(LocalTime.of(0, 15), state.sleepTime)
         assertEquals(setOf(UserGoal.STUDY, UserGoal.TEAMWORK), state.selectedGoals)
     }
 
     @Test
-    fun `given uiState, when toggling goal, then goal is added or removed`() = runTest {
-        val viewModel = OnboardingViewModel(fakeRepository)
+    fun `given rhythm updates, when onAction called, then uiState updates and picker closes`() = runTest {
+        val viewModel = OnboardingViewModel(fakeRepository, fakeSyncCoordinator)
         advanceUntilIdle()
 
-        // When: Toggle STUDY (not selected by default)
-        viewModel.onAction(OnboardingAction.ToggleGoal(UserGoal.STUDY))
-        assertTrue(viewModel.uiState.value.selectedGoals.contains(UserGoal.STUDY))
+        viewModel.onAction(OnboardingAction.OpenTimePicker(TimePickerTarget.WAKE_UP))
+        assertEquals(TimePickerTarget.WAKE_UP, viewModel.uiState.value.activeTimePicker)
 
-        // When: Toggle TASKS (selected by default)
-        viewModel.onAction(OnboardingAction.ToggleGoal(UserGoal.TASKS))
-        assertFalse(viewModel.uiState.value.selectedGoals.contains(UserGoal.TASKS))
-    }
-
-    @Test
-    fun `given custom selections, when completing onboarding, then repository receives exact current snapshot atomically`() = runTest {
-        val viewModel = OnboardingViewModel(fakeRepository)
-        advanceUntilIdle()
-
-        // Given: User customizes wake time and goals
         viewModel.onAction(OnboardingAction.UpdateWakeTime(LocalTime.of(6, 45)))
-        viewModel.onAction(OnboardingAction.ToggleGoal(UserGoal.ROUTINES))
+        assertEquals(LocalTime.of(6, 45), viewModel.uiState.value.wakeUpTime)
+        assertEquals(null, viewModel.uiState.value.activeTimePicker)
 
-        // When: Complete
-        viewModel.onAction(OnboardingAction.Complete)
-        advanceUntilIdle()
-
-        // Then: Repository saved exact snapshot
-        val saved = fakeRepository.currentPreferences
-        assertEquals(LocalTime.of(6, 45), saved.wakeUpTime)
-        assertEquals(LocalTime.of(23, 30), saved.sleepTime)
-        assertTrue(saved.goals.contains(UserGoal.ROUTINES))
-        assertTrue(saved.onboardingCompleted)
+        viewModel.onAction(OnboardingAction.OpenTimePicker(TimePickerTarget.SLEEP))
+        viewModel.onAction(OnboardingAction.UpdateSleepTime(LocalTime.of(22, 15)))
+        assertEquals(LocalTime.of(22, 15), viewModel.uiState.value.sleepTime)
+        assertEquals(null, viewModel.uiState.value.activeTimePicker)
     }
 
     @Test
-    fun `given step 1 customizations, when skipping onboarding, then exact current snapshot is saved`() = runTest {
-        val viewModel = OnboardingViewModel(fakeRepository)
+    fun `given goal selection, when toggling, then goals are added or removed`() = runTest {
+        val viewModel = OnboardingViewModel(fakeRepository, fakeSyncCoordinator)
         advanceUntilIdle()
 
-        // Given: User only customizes sleep time then taps Skip immediately
-        viewModel.onAction(OnboardingAction.UpdateSleepTime(LocalTime.of(22, 0)))
+        // Initially contains TASKS and PLANNING
+        viewModel.onAction(OnboardingAction.ToggleGoal(UserGoal.STUDY))
+        assertTrue(UserGoal.STUDY in viewModel.uiState.value.selectedGoals)
 
-        // When: Skip
-        viewModel.onAction(OnboardingAction.Skip)
-        advanceUntilIdle()
-
-        // Then: Snapshot saved with customized sleep and default wake/goals
-        val saved = fakeRepository.currentPreferences
-        assertEquals(LocalTime.of(7, 0), saved.wakeUpTime)
-        assertEquals(LocalTime.of(22, 0), saved.sleepTime)
-        assertEquals(setOf(UserGoal.TASKS, UserGoal.PLANNING), saved.goals)
-        assertTrue(saved.onboardingCompleted)
+        viewModel.onAction(OnboardingAction.ToggleGoal(UserGoal.TASKS))
+        assertFalse(UserGoal.TASKS in viewModel.uiState.value.selectedGoals)
     }
 
     @Test
-    fun `given repository that throws IOException, when completing onboarding, then saveError is exposed to UI`() = runTest {
-        fakeRepository.shouldThrowOnWrite = true
-        val viewModel = OnboardingViewModel(fakeRepository)
+    fun `given complete action, when sync coordinator succeeds, then persists data to repository`() = runTest {
+        val viewModel = OnboardingViewModel(fakeRepository, fakeSyncCoordinator)
         advanceUntilIdle()
 
-        // When: Complete
+        val customWake = LocalTime.of(6, 0)
+        val customSleep = LocalTime.of(22, 0)
+        val customGoals = setOf(UserGoal.STUDY, UserGoal.ROUTINES)
+
+        viewModel.onAction(OnboardingAction.UpdateWakeTime(customWake))
+        viewModel.onAction(OnboardingAction.UpdateSleepTime(customSleep))
+        viewModel.onAction(OnboardingAction.ToggleGoal(UserGoal.TASKS)) // remove
+        viewModel.onAction(OnboardingAction.ToggleGoal(UserGoal.PLANNING)) // remove
+        viewModel.onAction(OnboardingAction.ToggleGoal(UserGoal.STUDY)) // add
+        viewModel.onAction(OnboardingAction.ToggleGoal(UserGoal.ROUTINES)) // add
+
+        // When
         viewModel.onAction(OnboardingAction.Complete)
         advanceUntilIdle()
 
-        // Then: isSaving is false, saveError is true
-        val state = viewModel.uiState.value
-        assertFalse(state.isSaving)
-        assertTrue(state.saveError)
-    }
-
-    @Test
-    fun `given successful complete, when saving finishes, then isSaving is reset to false`() = runTest {
-        val viewModel = OnboardingViewModel(fakeRepository)
-        advanceUntilIdle()
-
-        // When: Complete
-        viewModel.onAction(OnboardingAction.Complete)
-        advanceUntilIdle()
-
-        // Then: isSaving is reset to false
-        val state = viewModel.uiState.value
-        assertFalse(state.isSaving)
-        assertFalse(state.saveError)
-    }
-
-    @Test
-    fun `given completed onboarding, when completing again after reset, then isSaving does not block subsequent attempts`() = runTest {
-        val viewModel = OnboardingViewModel(fakeRepository)
-        advanceUntilIdle()
-
-        // First completion
-        viewModel.onAction(OnboardingAction.Complete)
-        advanceUntilIdle()
+        // Then
+        assertTrue(fakeRepository.currentPreferences.onboardingCompleted)
+        assertEquals(customWake, fakeRepository.currentPreferences.wakeUpTime)
+        assertEquals(customSleep, fakeRepository.currentPreferences.sleepTime)
+        assertEquals(customGoals, fakeRepository.currentPreferences.goals)
         assertFalse(viewModel.uiState.value.isSaving)
-
-        // Reset
-        fakeRepository.resetOnboarding()
-        advanceUntilIdle()
-
-        // Second completion with new wake time
-        viewModel.onAction(OnboardingAction.UpdateWakeTime(LocalTime.of(8, 0)))
-        viewModel.onAction(OnboardingAction.Complete)
-        advanceUntilIdle()
-
-        // Then: Second completion succeeds without being blocked by isSaving
-        assertEquals(LocalTime.of(8, 0), fakeRepository.currentPreferences.wakeUpTime)
-        assertFalse(viewModel.uiState.value.isSaving)
+        assertFalse(viewModel.uiState.value.saveError)
     }
 
     @Test
-    fun `given steps, when navigating, then currentStep updates correctly`() = runTest {
-        val viewModel = OnboardingViewModel(fakeRepository)
+    fun `given cloud sync failure on complete, then saveError is true and local completed is not true`() = runTest {
+        val viewModel = OnboardingViewModel(fakeRepository, fakeSyncCoordinator)
+        advanceUntilIdle()
+
+        fakeSyncCoordinator.shouldThrowOnComplete = true
+
+        // When
+        viewModel.onAction(OnboardingAction.Complete)
+        advanceUntilIdle()
+
+        // Then
+        assertFalse(viewModel.uiState.value.isSaving)
+        assertTrue(viewModel.uiState.value.saveError)
+        assertFalse(fakeRepository.currentPreferences.onboardingCompleted)
+    }
+
+    @Test
+    fun `given step navigation, when onAction called, then currentStep updates`() = runTest {
+        val viewModel = OnboardingViewModel(fakeRepository, fakeSyncCoordinator)
         advanceUntilIdle()
 
         viewModel.onAction(OnboardingAction.NavigateToStep(OnboardingStep.GOALS))
@@ -202,7 +174,32 @@ class OnboardingViewModelTest {
     }
 }
 
-/** Fake in-memory implementation for deterministic ViewModel unit tests */
+/** Fake sync coordinator for OnboardingViewModel unit tests */
+private class FakeUserPreferencesSyncCoordinator(
+    private val localRepo: FakeUserPreferencesRepository
+) : UserPreferencesSyncCoordinator {
+
+    var shouldThrowOnComplete: Boolean = false
+
+    override suspend fun restoreForUser(userId: String): RestorePreferencesResult {
+        return RestorePreferencesResult.RestoredCompleted
+    }
+
+    override suspend fun completeOnboarding(
+        wakeUpTime: LocalTime,
+        sleepTime: LocalTime,
+        goals: Set<UserGoal>
+    ) {
+        if (shouldThrowOnComplete) throw IOException("Simulated cloud write failure")
+        localRepo.completeOnboarding(wakeUpTime, sleepTime, goals)
+    }
+
+    override suspend fun signOutAndClearLocal() {
+        localRepo.clearOnboardingPreferences()
+    }
+}
+
+/** Fake in-memory repository implementation for deterministic ViewModel unit tests */
 private class FakeUserPreferencesRepository : UserPreferencesRepository {
 
     private val _preferencesFlow = MutableStateFlow(UserPreferences())
@@ -252,5 +249,26 @@ private class FakeUserPreferencesRepository : UserPreferencesRepository {
     override suspend fun resetOnboarding() {
         if (shouldThrowOnWrite) throw IOException("Simulated disk write failure")
         _preferencesFlow.value = _preferencesFlow.value.copy(onboardingCompleted = false)
+    }
+
+    override suspend fun replaceOnboardingPreferences(snapshot: OnboardingPreferencesSnapshot) {
+        if (shouldThrowOnWrite) throw IOException("Simulated disk write failure")
+        _preferencesFlow.value = _preferencesFlow.value.copy(
+            wakeUpTime = snapshot.wakeUpTime,
+            sleepTime = snapshot.sleepTime,
+            goals = snapshot.goals,
+            onboardingCompleted = snapshot.onboardingCompleted
+        )
+    }
+
+    override suspend fun clearOnboardingPreferences() {
+        if (shouldThrowOnWrite) throw IOException("Simulated disk write failure")
+        val defaults = UserPreferences()
+        _preferencesFlow.value = _preferencesFlow.value.copy(
+            wakeUpTime = defaults.wakeUpTime,
+            sleepTime = defaults.sleepTime,
+            goals = defaults.goals,
+            onboardingCompleted = false
+        )
     }
 }

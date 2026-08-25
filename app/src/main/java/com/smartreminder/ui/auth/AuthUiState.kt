@@ -5,7 +5,10 @@ import android.content.Context
 sealed interface AuthUiState {
     data object Idle : AuthUiState
     data object Loading : AuthUiState
-    data class Success(val userEmail: String?) : AuthUiState
+    data class Success(
+        val userEmail: String?,
+        val needsOnboarding: Boolean
+    ) : AuthUiState
     data class Error(val message: String) : AuthUiState
 }
 

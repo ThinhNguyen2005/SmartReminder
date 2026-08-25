@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.smartreminder.domain.model.UserGoal
 import com.smartreminder.domain.repository.UserPreferencesRepository
+import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,17 +16,18 @@ import java.io.IOException
 import java.time.LocalTime
 
 /**
- * Manages onboarding state and persists via [UserPreferencesRepository].
+ * Manages onboarding state and persists via [UserPreferencesSyncCoordinator].
  *
  * Key design decisions:
  * - **Hydrates from repository on init**: If user previously completed onboarding then reset,
  *   they see their previously saved rhythm/goals, not hardcoded defaults.
  * - **No Completed event**: Navigation is purely reactive via DataStore Flow → AppViewModel.
- *   completeOnboarding() writes to DataStore → preferences Flow emits → AppState.Main.
- * - **Error handling**: IOException on save is caught and exposed via [OnboardingUiState.saveError].
+ *   completeOnboarding() writes to Cloud & DataStore → preferences Flow emits → AppState.Main.
+ * - **Error handling**: Any Exception on cloud or local save is caught and exposed via [OnboardingUiState.saveError].
  */
 class OnboardingViewModel(
-    private val repository: UserPreferencesRepository
+    private val repository: UserPreferencesRepository,
+    private val syncCoordinator: UserPreferencesSyncCoordinator
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(OnboardingUiState())
@@ -102,9 +104,9 @@ class OnboardingViewModel(
     }
 
     /**
-     * Atomically persists current snapshot and marks onboarding complete.
-     * After DataStore write, preferences Flow emits → AppViewModel sees Main → UI transitions.
-     * No callback or event needed.
+     * Atomically persists current snapshot via [UserPreferencesSyncCoordinator].
+     * If authenticated, writes to Cloud first, then to DataStore.
+     * If unauthenticated, writes to DataStore directly.
      */
     private fun completeOnboarding() {
         val snapshot = _uiState.value
@@ -114,13 +116,13 @@ class OnboardingViewModel(
 
         viewModelScope.launch {
             try {
-                repository.completeOnboarding(
+                syncCoordinator.completeOnboarding(
                     wakeUpTime = snapshot.wakeUpTime,
                     sleepTime = snapshot.sleepTime,
                     goals = snapshot.selectedGoals
                 )
                 _uiState.update { it.copy(isSaving = false) }
-            } catch (_: IOException) {
+            } catch (_: Exception) {
                 _uiState.update { it.copy(isSaving = false, saveError = true) }
             }
         }
@@ -128,13 +130,14 @@ class OnboardingViewModel(
 }
 
 class OnboardingViewModelFactory(
-    private val repository: UserPreferencesRepository
+    private val repository: UserPreferencesRepository,
+    private val syncCoordinator: UserPreferencesSyncCoordinator
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(OnboardingViewModel::class.java)) {
-            return OnboardingViewModel(repository) as T
+            return OnboardingViewModel(repository, syncCoordinator) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
