@@ -110,4 +110,28 @@
     <plurals name="schedules_items_count">
         <item quantity="other">%1$d mốc thời gian</item>
     </plurals>
+
+    <!-- Màn hình Profile & Cài đặt -->
+    <string name="profile_title">Hồ sơ</string>
+    <string name="profile_edit">Chỉnh sửa hồ sơ</string>
+    <string name="profile_routine_title">Nhịp sinh hoạt hàng ngày</string>
+    <string name="profile_wake_time">Giờ thức dậy</string>
+    <string name="profile_sleep_time">Giờ đi ngủ</string>
+    <string name="profile_section_preferences">Tùy chọn</string>
+    <string name="profile_section_app_settings">Cài đặt ứng dụng</string>
+    <string name="profile_notification_preferences">Cài đặt thông báo</string>
+    <string name="profile_account_sync">Đồng bộ tài khoản</string>
+    <string name="profile_data_backup">Sao lưu dữ liệu</string>
+    <string name="profile_ai_preferences">Tùy chỉnh AI</string>
+    <string name="profile_appearance">Giao diện</string>
+    <string name="profile_privacy">Quyền riêng tư</string>
+    <string name="profile_sign_out">Đăng xuất</string>
+    <string name="profile_sign_out_confirm_title">Đăng xuất?</string>
+    <string name="profile_sign_out_confirm_message">Bạn sẽ cần đăng nhập lại để truy cập dữ liệu của mình.</string>
+    <string name="profile_guest_name">Alex</string>
+    <string name="profile_guest_email">alex@email.com</string>
+    <string name="profile_avatar_description">Ảnh đại diện người dùng</string>
+    <string name="profile_notifications_description">Thông báo</string>
+    <string name="profile_wake_time_dialog_title">Chọn giờ thức dậy</string>
+    <string name="profile_sleep_time_dialog_title">Chọn giờ đi ngủ</string>
 </resources>
