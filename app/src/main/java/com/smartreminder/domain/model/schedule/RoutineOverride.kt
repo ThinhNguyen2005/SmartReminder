@@ -3,9 +3,14 @@ package com.smartreminder.domain.model.schedule
 import com.smartreminder.domain.model.schedule.ids.RoutineId
 import java.time.LocalDate
 
-enum class OverrideType {
-    SKIP,
-    FORCE_RUN
+enum class OverrideType(val storageKey: String) {
+    SKIP("skip"),
+    FORCE_RUN("force_run");
+
+    companion object {
+        fun fromStorageKey(key: String): OverrideType? =
+            entries.firstOrNull { it.storageKey == key }
+    }
 }
 
 /**
