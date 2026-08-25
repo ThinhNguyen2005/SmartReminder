@@ -10,7 +10,7 @@ sealed interface AuthUiState {
 }
 
 sealed interface AuthUiAction {
-    data class SignInWithGoogle(val context: Context, val onSuccess: () -> Unit = {}) : AuthUiAction
+    data class SignInWithGoogle(val context: Context) : AuthUiAction
     data object DismissError : AuthUiAction
     data object Reset : AuthUiAction
 }

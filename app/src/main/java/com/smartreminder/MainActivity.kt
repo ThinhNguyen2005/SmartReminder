@@ -1,6 +1,7 @@
 package com.smartreminder
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -15,7 +16,6 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -34,7 +34,6 @@ import com.smartreminder.ui.onboarding.OnboardingViewModel
 import com.smartreminder.ui.onboarding.OnboardingViewModelFactory
 import com.smartreminder.ui.screens.WelcomeScreen
 import com.smartreminder.ui.theme.SmartReminderTheme
-import kotlinx.coroutines.launch
 
 enum class OnboardingFlowStage {
     WELCOME,
@@ -54,7 +53,6 @@ class MainActivity : ComponentActivity() {
             )
             val appState by appViewModel.appState.collectAsStateWithLifecycle()
             val themeMode by appViewModel.themeMode.collectAsStateWithLifecycle()
-            val coroutineScope = rememberCoroutineScope()
 
             val darkTheme = when (themeMode) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
@@ -80,25 +78,17 @@ class MainActivity : ComponentActivity() {
                                     WelcomeScreen(
                                         viewModel = authViewModel,
                                         onLoginSuccess = {
-                                            coroutineScope.launch {
-                                                appContainer.userPreferencesRepository.completeOnboarding(
-                                                    wakeUpTime = com.smartreminder.domain.model.UserPreferences.DEFAULT_WAKE_TIME,
-                                                    sleepTime = com.smartreminder.domain.model.UserPreferences.DEFAULT_SLEEP_TIME,
-                                                    goals = com.smartreminder.domain.model.UserPreferences.DEFAULT_GOALS
-                                                )
-                                            }
+                                            appViewModel.completeOnboardingForAuthenticatedUser()
                                         },
                                         onContinueWithEmail = {
                                             flowStage = OnboardingFlowStage.ONBOARDING_STEPS
                                         },
                                         onSignInClick = {
-                                            coroutineScope.launch {
-                                                appContainer.userPreferencesRepository.completeOnboarding(
-                                                    wakeUpTime = com.smartreminder.domain.model.UserPreferences.DEFAULT_WAKE_TIME,
-                                                    sleepTime = com.smartreminder.domain.model.UserPreferences.DEFAULT_SLEEP_TIME,
-                                                    goals = com.smartreminder.domain.model.UserPreferences.DEFAULT_GOALS
-                                                )
-                                            }
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                getString(R.string.auth_sign_in_coming_soon),
+                                                Toast.LENGTH_SHORT
+                                            ).show()
                                         }
                                     )
                                 }
@@ -113,9 +103,7 @@ class MainActivity : ComponentActivity() {
                         AppState.Main -> {
                             SmartReminderApp(
                                 onRestartOnboarding = {
-                                    coroutineScope.launch {
-                                        appContainer.userPreferencesRepository.resetOnboarding()
-                                    }
+                                    appViewModel.resetOnboarding()
                                 }
                             )
                         }

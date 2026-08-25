@@ -21,13 +21,13 @@ class AuthViewModel : ViewModel() {
 
     fun onAction(action: AuthUiAction) {
         when (action) {
-            is AuthUiAction.SignInWithGoogle -> signInWithGoogle(action.context, action.onSuccess)
+            is AuthUiAction.SignInWithGoogle -> signInWithGoogle(action.context)
             AuthUiAction.DismissError -> resetState()
             AuthUiAction.Reset -> resetState()
         }
     }
 
-    private fun signInWithGoogle(context: Context, onSuccess: () -> Unit) {
+    private fun signInWithGoogle(context: Context) {
         viewModelScope.launch {
             _uiState.update { AuthUiState.Loading }
 
@@ -56,7 +56,6 @@ class AuthViewModel : ViewModel() {
 
                         val currentUser = SupabaseManager.client.auth.currentUserOrNull()
                         _uiState.update { AuthUiState.Success(currentUser?.email) }
-                        onSuccess()
                     } catch (e: Exception) {
                         _uiState.update {
                             AuthUiState.Error("Lỗi xác thực Supabase: ${e.localizedMessage ?: e.message}")

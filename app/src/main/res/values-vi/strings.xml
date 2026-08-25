@@ -74,4 +74,5 @@
     <string name="auth_success_toast">Chào mừng trở lại, %1$s!</string>
     <string name="auth_error_cancelled">Đã hủy đăng nhập Google.</string>
     <string name="auth_error_missing_config">Vui lòng điền GOOGLE_WEB_CLIENT_ID trong SupabaseClient.kt.</string>
+    <string name="auth_sign_in_coming_soon">Tính năng đăng nhập bằng tài khoản đang được phát triển. Vui lòng tiếp tục với Google hoặc Onboarding.</string>
 </resources>

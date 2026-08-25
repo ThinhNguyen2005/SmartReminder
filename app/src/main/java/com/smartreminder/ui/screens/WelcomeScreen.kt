@@ -135,11 +135,7 @@ fun WelcomeScreenContent(
             WelcomeBottomActions(
                 uiState = uiState,
                 onGoogleSignIn = {
-                    onAction(
-                        AuthUiAction.SignInWithGoogle(context) {
-                            onLoginSuccess()
-                        }
-                    )
+                    onAction(AuthUiAction.SignInWithGoogle(context))
                 },
                 onContinueWithEmail = onContinueWithEmail,
                 onSignInClick = onSignInClick,

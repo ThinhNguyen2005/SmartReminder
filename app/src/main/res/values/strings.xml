@@ -74,4 +74,5 @@
     <string name="auth_success_toast">Welcome back, %1$s!</string>
     <string name="auth_error_cancelled">Google sign in was cancelled.</string>
     <string name="auth_error_missing_config">Please configure GOOGLE_WEB_CLIENT_ID in SupabaseClient.kt.</string>
+    <string name="auth_sign_in_coming_soon">Email sign-in is coming soon. Please continue with Google or Email onboarding.</string>
 </resources>

@@ -119,7 +119,7 @@ class OnboardingViewModel(
                     sleepTime = snapshot.sleepTime,
                     goals = snapshot.selectedGoals
                 )
-                // No state update needed — DataStore Flow → AppViewModel → Main handles navigation
+                _uiState.update { it.copy(isSaving = false) }
             } catch (_: IOException) {
                 _uiState.update { it.copy(isSaving = false, saveError = true) }
             }

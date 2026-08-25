@@ -151,6 +151,45 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `given successful complete, when saving finishes, then isSaving is reset to false`() = runTest {
+        val viewModel = OnboardingViewModel(fakeRepository)
+        advanceUntilIdle()
+
+        // When: Complete
+        viewModel.onAction(OnboardingAction.Complete)
+        advanceUntilIdle()
+
+        // Then: isSaving is reset to false
+        val state = viewModel.uiState.value
+        assertFalse(state.isSaving)
+        assertFalse(state.saveError)
+    }
+
+    @Test
+    fun `given completed onboarding, when completing again after reset, then isSaving does not block subsequent attempts`() = runTest {
+        val viewModel = OnboardingViewModel(fakeRepository)
+        advanceUntilIdle()
+
+        // First completion
+        viewModel.onAction(OnboardingAction.Complete)
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.isSaving)
+
+        // Reset
+        fakeRepository.resetOnboarding()
+        advanceUntilIdle()
+
+        // Second completion with new wake time
+        viewModel.onAction(OnboardingAction.UpdateWakeTime(LocalTime.of(8, 0)))
+        viewModel.onAction(OnboardingAction.Complete)
+        advanceUntilIdle()
+
+        // Then: Second completion succeeds without being blocked by isSaving
+        assertEquals(LocalTime.of(8, 0), fakeRepository.currentPreferences.wakeUpTime)
+        assertFalse(viewModel.uiState.value.isSaving)
+    }
+
+    @Test
     fun `given steps, when navigating, then currentStep updates correctly`() = runTest {
         val viewModel = OnboardingViewModel(fakeRepository)
         advanceUntilIdle()
