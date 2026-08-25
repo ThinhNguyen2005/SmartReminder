@@ -54,6 +54,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.smartreminder.R
+import com.smartreminder.domain.model.UserGoal
 import com.smartreminder.ui.onboarding.GoalOption
 import com.smartreminder.ui.onboarding.OnboardingUiState
 import com.smartreminder.ui.theme.CueSpacing
@@ -63,7 +64,7 @@ import com.smartreminder.ui.theme.SmartReminderTheme
 @Composable
 fun Step2GoalsScreen(
     uiState: OnboardingUiState,
-    onToggleGoal: (String) -> Unit,
+    onToggleGoal: (UserGoal) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -96,15 +97,15 @@ fun Step2GoalsScreen(
         LazyColumn(
             modifier = Modifier.weight(1f, fill = false)
         ) {
-            items(OnboardingUiState.DEFAULT_GOALS, key = { it.id }) { goal ->
-                val isSelected = uiState.selectedGoals.contains(goal.id)
+            items(OnboardingUiState.DEFAULT_GOALS, key = { it.goal }) { goal ->
+                val isSelected = uiState.selectedGoals.contains(goal.goal)
 
                 GoalSelectionRow(
                     goal = goal,
                     isSelected = isSelected,
                     onToggle = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onToggleGoal(goal.id)
+                        onToggleGoal(goal.goal)
                     }
                 )
             }
@@ -156,13 +157,12 @@ private fun GoalSelectionRow(
         label = "IndicatorWidth"
     )
 
-    val icon: ImageVector = when (goal.id) {
-        "tasks" -> if (isSelected) Icons.Filled.TaskAlt else Icons.Outlined.TaskAlt
-        "routines" -> if (isSelected) Icons.Filled.Autorenew else Icons.Outlined.Autorenew
-        "planning" -> if (isSelected) Icons.Filled.AutoAwesome else Icons.Outlined.AutoAwesome
-        "study" -> if (isSelected) Icons.Filled.School else Icons.Outlined.School
-        "teamwork" -> if (isSelected) Icons.Filled.Groups else Icons.Outlined.Groups
-        else -> if (isSelected) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked
+    val icon: ImageVector = when (goal.goal) {
+        UserGoal.TASKS -> if (isSelected) Icons.Filled.TaskAlt else Icons.Outlined.TaskAlt
+        UserGoal.ROUTINES -> if (isSelected) Icons.Filled.Autorenew else Icons.Outlined.Autorenew
+        UserGoal.PLANNING -> if (isSelected) Icons.Filled.AutoAwesome else Icons.Outlined.AutoAwesome
+        UserGoal.STUDY -> if (isSelected) Icons.Filled.School else Icons.Outlined.School
+        UserGoal.TEAMWORK -> if (isSelected) Icons.Filled.Groups else Icons.Outlined.Groups
     }
 
     val title = stringResource(goal.titleRes)
@@ -216,7 +216,7 @@ private fun GoalSelectionRow(
                     )
 
                     // Optional AI Core Tag
-                    if (goal.id == "planning") {
+                    if (goal.goal == UserGoal.PLANNING) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(CueSpacing.Xs))
@@ -255,7 +255,7 @@ private fun GoalSelectionRow(
 private fun Step2GoalsPreview() {
     SmartReminderTheme {
         Step2GoalsScreen(
-            uiState = OnboardingUiState(selectedGoals = setOf("tasks", "planning")),
+            uiState = OnboardingUiState(selectedGoals = setOf(UserGoal.TASKS, UserGoal.PLANNING)),
             onToggleGoal = {}
         )
     }

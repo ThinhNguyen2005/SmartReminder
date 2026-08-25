@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
@@ -23,11 +22,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -47,21 +43,30 @@ import com.smartreminder.ui.theme.CueTheme
 import com.smartreminder.ui.theme.SmartReminderTheme
 import kotlinx.coroutines.launch
 
+/**
+ * Stateless onboarding screen — receives [uiState] and dispatches [onAction].
+ * All state management lives in [OnboardingViewModel]; this composable only renders.
+ * PagerState is a local rendering mechanism, synced with [OnboardingUiState.currentStep].
+ */
 @Composable
 fun OnboardingScreen(
-    onFinishOnboarding: () -> Unit,
+    uiState: OnboardingUiState,
+    onAction: (OnboardingAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var uiState by remember { mutableStateOf(OnboardingUiState()) }
     val pagerState = rememberPagerState(pageCount = { 3 })
     val coroutineScope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
 
-    val currentStep = when (pagerState.currentPage) {
-        0 -> OnboardingStep.RHYTHM
-        1 -> OnboardingStep.GOALS
-        else -> OnboardingStep.TIMELINE
+    // Sync PagerState with ViewModel's currentStep (ViewModel is source of truth)
+    LaunchedEffect(uiState.currentStep) {
+        val targetPage = uiState.currentStep.stepIndex
+        if (pagerState.currentPage != targetPage) {
+            pagerState.animateScrollToPage(targetPage)
+        }
     }
+
+    val currentStep = uiState.currentStep
 
     Scaffold(
         containerColor = CueTheme.colors.background,
@@ -69,26 +74,24 @@ fun OnboardingScreen(
             OnboardingHeader(
                 currentStep = currentStep,
                 onBack = {
-                    if (pagerState.currentPage > 0) {
-                        coroutineScope.launch {
-                            pagerState.animateScrollToPage(pagerState.currentPage - 1)
-                        }
+                    currentStep.previousStep?.let { prev ->
+                        onAction(OnboardingAction.NavigateToStep(prev))
                     }
                 },
-                onSkip = onFinishOnboarding
+                onSkip = { onAction(OnboardingAction.Skip) }
             )
         },
         bottomBar = {
             OnboardingFooter(
                 currentStep = currentStep,
+                isSaving = uiState.isSaving,
                 onContinue = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    if (pagerState.currentPage < 2) {
-                        coroutineScope.launch {
-                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                        }
+                    val nextStep = currentStep.nextStep
+                    if (nextStep != null) {
+                        onAction(OnboardingAction.NavigateToStep(nextStep))
                     } else {
-                        onFinishOnboarding()
+                        onAction(OnboardingAction.Complete)
                     }
                 },
                 modifier = Modifier
@@ -101,6 +104,7 @@ fun OnboardingScreen(
     ) { innerPadding ->
         HorizontalPager(
             state = pagerState,
+            userScrollEnabled = false,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
@@ -110,21 +114,15 @@ fun OnboardingScreen(
                     Step1RhythmScreen(
                         uiState = uiState,
                         onRequestTimePicker = { target ->
-                            uiState = uiState.copy(activeTimePicker = target)
+                            onAction(OnboardingAction.OpenTimePicker(target))
                         }
                     )
                 }
                 1 -> {
                     Step2GoalsScreen(
                         uiState = uiState,
-                        onToggleGoal = { goalId ->
-                            val current = uiState.selectedGoals
-                            val updated = if (current.contains(goalId)) {
-                                current - goalId
-                            } else {
-                                current + goalId
-                            }
-                            uiState = uiState.copy(selectedGoals = updated)
+                        onToggleGoal = { goal ->
+                            onAction(OnboardingAction.ToggleGoal(goal))
                         }
                     )
                 }
@@ -135,7 +133,7 @@ fun OnboardingScreen(
         }
     }
 
-    // Modern Frictionless Time Picker Bottom Sheet
+    // Time Picker Bottom Sheet
     uiState.activeTimePicker?.let { target ->
         val currentTime = when (target) {
             TimePickerTarget.WAKE_UP -> uiState.wakeUpTime
@@ -146,14 +144,12 @@ fun OnboardingScreen(
             target = target,
             currentTime = currentTime,
             onTimeSelected = { newTime ->
-                uiState = when (target) {
-                    TimePickerTarget.WAKE_UP -> uiState.copy(wakeUpTime = newTime, activeTimePicker = null)
-                    TimePickerTarget.SLEEP -> uiState.copy(sleepTime = newTime, activeTimePicker = null)
+                when (target) {
+                    TimePickerTarget.WAKE_UP -> onAction(OnboardingAction.UpdateWakeTime(newTime))
+                    TimePickerTarget.SLEEP -> onAction(OnboardingAction.UpdateSleepTime(newTime))
                 }
             },
-            onDismiss = {
-                uiState = uiState.copy(activeTimePicker = null)
-            }
+            onDismiss = { onAction(OnboardingAction.DismissTimePicker) }
         )
     }
 }
@@ -203,6 +199,7 @@ private fun OnboardingHeader(
 @Composable
 private fun OnboardingFooter(
     currentStep: OnboardingStep,
+    isSaving: Boolean,
     onContinue: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -211,10 +208,8 @@ private fun OnboardingFooter(
         verticalArrangement = Arrangement.spacedBy(CueSpacing.Lg),
         modifier = modifier
     ) {
-        // Dots Indicator
         ProgressDotsIndicator(currentStep = currentStep)
 
-        // Action Button (16dp rounded corners, CTA)
         val buttonText = when (currentStep) {
             OnboardingStep.RHYTHM, OnboardingStep.GOALS -> stringResource(R.string.action_continue)
             OnboardingStep.TIMELINE -> stringResource(R.string.action_start_using_cue)
@@ -223,6 +218,7 @@ private fun OnboardingFooter(
         CuePrimaryButton(
             text = buttonText,
             onClick = onContinue,
+            enabled = !isSaving,
             backgroundColor = CueTheme.colors.cta,
             textColor = CueTheme.colors.onCta
         )
@@ -233,6 +229,9 @@ private fun OnboardingFooter(
 @Composable
 private fun OnboardingScreenPreview() {
     SmartReminderTheme {
-        OnboardingScreen(onFinishOnboarding = {})
+        OnboardingScreen(
+            uiState = OnboardingUiState(),
+            onAction = {}
+        )
     }
 }

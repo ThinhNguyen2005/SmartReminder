@@ -2,6 +2,7 @@ package com.smartreminder.ui.onboarding
 
 import androidx.annotation.StringRes
 import com.smartreminder.R
+import com.smartreminder.domain.model.UserGoal
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -27,7 +28,7 @@ enum class OnboardingStep(val stepIndex: Int) {
 }
 
 data class GoalOption(
-    val id: String,
+    val goal: UserGoal,
     @get:StringRes val titleRes: Int,
     @get:StringRes val descriptionRes: Int
 )
@@ -36,8 +37,10 @@ data class OnboardingUiState(
     val currentStep: OnboardingStep = OnboardingStep.RHYTHM,
     val wakeUpTime: LocalTime = LocalTime.of(7, 0),
     val sleepTime: LocalTime = LocalTime.of(23, 30),
-    val selectedGoals: Set<String> = setOf("tasks", "planning"),
-    val activeTimePicker: TimePickerTarget? = null
+    val selectedGoals: Set<UserGoal> = setOf(UserGoal.TASKS, UserGoal.PLANNING),
+    val activeTimePicker: TimePickerTarget? = null,
+    val isSaving: Boolean = false,
+    val saveError: Boolean = false
 ) {
     val wakeUpTimeFormatted: String
         get() = wakeUpTime.format(TIME_FORMATTER)
@@ -50,27 +53,27 @@ data class OnboardingUiState(
 
         val DEFAULT_GOALS = listOf(
             GoalOption(
-                id = "tasks",
+                goal = UserGoal.TASKS,
                 titleRes = R.string.goal_tasks_title,
                 descriptionRes = R.string.goal_tasks_desc
             ),
             GoalOption(
-                id = "routines",
+                goal = UserGoal.ROUTINES,
                 titleRes = R.string.goal_routines_title,
                 descriptionRes = R.string.goal_routines_desc
             ),
             GoalOption(
-                id = "planning",
+                goal = UserGoal.PLANNING,
                 titleRes = R.string.goal_planning_title,
                 descriptionRes = R.string.goal_planning_desc
             ),
             GoalOption(
-                id = "study",
+                goal = UserGoal.STUDY,
                 titleRes = R.string.goal_study_title,
                 descriptionRes = R.string.goal_study_desc
             ),
             GoalOption(
-                id = "teamwork",
+                goal = UserGoal.TEAMWORK,
                 titleRes = R.string.goal_teamwork_title,
                 descriptionRes = R.string.goal_teamwork_desc
             )

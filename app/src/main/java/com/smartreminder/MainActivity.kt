@@ -15,73 +15,112 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.smartreminder.domain.model.ThemeMode
+import com.smartreminder.ui.app.AppState
+import com.smartreminder.ui.app.AppViewModel
+import com.smartreminder.ui.app.AppViewModelFactory
 import com.smartreminder.ui.auth.AuthViewModel
-import com.smartreminder.ui.onboarding.OnboardingScreen
+import com.smartreminder.ui.onboarding.OnboardingRoute
+import com.smartreminder.ui.onboarding.OnboardingViewModel
+import com.smartreminder.ui.onboarding.OnboardingViewModelFactory
 import com.smartreminder.ui.screens.WelcomeScreen
 import com.smartreminder.ui.theme.SmartReminderTheme
+import kotlinx.coroutines.launch
 
-enum class AppFlowState {
+enum class OnboardingFlowStage {
     WELCOME,
-    ONBOARDING,
-    MAIN_APP
+    ONBOARDING_STEPS
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val appContainer = (application as CueApplication).appContainer
+
         setContent {
-            SmartReminderTheme {
-                MainRootView()
-            }
-        }
-    }
-}
+            val appViewModel: AppViewModel = viewModel(
+                factory = AppViewModelFactory(appContainer.userPreferencesRepository)
+            )
+            val appState by appViewModel.appState.collectAsStateWithLifecycle()
+            val themeMode by appViewModel.themeMode.collectAsStateWithLifecycle()
+            val coroutineScope = rememberCoroutineScope()
 
-@Composable
-fun MainRootView() {
-    var flowState by rememberSaveable { mutableStateOf(AppFlowState.WELCOME) }
-    val authViewModel: AuthViewModel = viewModel()
+            val darkTheme = when (themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
 
-    Crossfade(
-        targetState = flowState,
-        label = "RootViewCrossfade"
-    ) { state ->
-        when (state) {
-            AppFlowState.WELCOME -> {
-                WelcomeScreen(
-                    viewModel = authViewModel,
-                    onLoginSuccess = {
-                        flowState = AppFlowState.MAIN_APP
-                    },
-                    onContinueWithEmail = {
-                        flowState = AppFlowState.ONBOARDING
-                    },
-                    onSignInClick = {
-                        flowState = AppFlowState.MAIN_APP
+            SmartReminderTheme(darkTheme = darkTheme) {
+                Crossfade(
+                    targetState = appState,
+                    label = "AppStateCrossfade"
+                ) { state ->
+                    when (state) {
+                        AppState.Loading -> {
+                            // Blank — prevents onboarding flash while DataStore loads asynchronously
+                        }
+                        AppState.Onboarding -> {
+                            var flowStage by rememberSaveable { mutableStateOf(OnboardingFlowStage.WELCOME) }
+                            val authViewModel: AuthViewModel = viewModel()
+
+                            when (flowStage) {
+                                OnboardingFlowStage.WELCOME -> {
+                                    WelcomeScreen(
+                                        viewModel = authViewModel,
+                                        onLoginSuccess = {
+                                            coroutineScope.launch {
+                                                appContainer.userPreferencesRepository.completeOnboarding(
+                                                    wakeUpTime = com.smartreminder.domain.model.UserPreferences.DEFAULT_WAKE_TIME,
+                                                    sleepTime = com.smartreminder.domain.model.UserPreferences.DEFAULT_SLEEP_TIME,
+                                                    goals = com.smartreminder.domain.model.UserPreferences.DEFAULT_GOALS
+                                                )
+                                            }
+                                        },
+                                        onContinueWithEmail = {
+                                            flowStage = OnboardingFlowStage.ONBOARDING_STEPS
+                                        },
+                                        onSignInClick = {
+                                            coroutineScope.launch {
+                                                appContainer.userPreferencesRepository.completeOnboarding(
+                                                    wakeUpTime = com.smartreminder.domain.model.UserPreferences.DEFAULT_WAKE_TIME,
+                                                    sleepTime = com.smartreminder.domain.model.UserPreferences.DEFAULT_SLEEP_TIME,
+                                                    goals = com.smartreminder.domain.model.UserPreferences.DEFAULT_GOALS
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
+                                OnboardingFlowStage.ONBOARDING_STEPS -> {
+                                    val onboardingViewModel: OnboardingViewModel = viewModel(
+                                        factory = OnboardingViewModelFactory(appContainer.userPreferencesRepository)
+                                    )
+                                    OnboardingRoute(viewModel = onboardingViewModel)
+                                }
+                            }
+                        }
+                        AppState.Main -> {
+                            SmartReminderApp(
+                                onRestartOnboarding = {
+                                    coroutineScope.launch {
+                                        appContainer.userPreferencesRepository.resetOnboarding()
+                                    }
+                                }
+                            )
+                        }
                     }
-                )
-            }
-            AppFlowState.ONBOARDING -> {
-                OnboardingScreen(
-                    onFinishOnboarding = {
-                        flowState = AppFlowState.MAIN_APP
-                    }
-                )
-            }
-            AppFlowState.MAIN_APP -> {
-                SmartReminderApp(
-                    onRestartOnboarding = {
-                        flowState = AppFlowState.WELCOME
-                    }
-                )
+                }
             }
         }
     }
@@ -141,6 +180,6 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 @Composable
 fun GreetingPreview() {
     SmartReminderTheme {
-        MainRootView()
+        SmartReminderApp()
     }
 }
