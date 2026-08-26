@@ -21,11 +21,12 @@ class AuthUiStateTest {
     }
 
     @Test
-    fun `given success state with user email, then email is preserved`() {
+    fun `given success state with user email, then email and needsOnboarding are preserved`() {
         val email = "user@smartreminder.com"
-        val state = AuthUiState.Success(userEmail = email)
+        val state = AuthUiState.Success(userEmail = email, needsOnboarding = false)
 
         assertEquals(email, state.userEmail)
+        assertEquals(false, state.needsOnboarding)
     }
 
     @Test

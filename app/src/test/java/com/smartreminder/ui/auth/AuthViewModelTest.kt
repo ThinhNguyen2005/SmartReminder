@@ -1,5 +1,8 @@
 package com.smartreminder.ui.auth
 
+import com.smartreminder.domain.model.UserGoal
+import com.smartreminder.domain.sync.RestorePreferencesResult
+import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -12,17 +15,20 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.LocalTime
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
+    private lateinit var fakeSyncCoordinator: FakeAuthSyncCoordinator
     private lateinit var viewModel: AuthViewModel
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        viewModel = AuthViewModel()
+        fakeSyncCoordinator = FakeAuthSyncCoordinator()
+        viewModel = AuthViewModel(fakeSyncCoordinator)
     }
 
     @After
@@ -52,5 +58,23 @@ class AuthViewModelTest {
         // Then: State is Idle
         assertEquals(AuthUiState.Idle, viewModel.uiState.value)
         assertTrue(viewModel.uiState.value !is AuthUiState.Success)
+    }
+}
+
+private class FakeAuthSyncCoordinator : UserPreferencesSyncCoordinator {
+    var restoreResultToReturn: RestorePreferencesResult = RestorePreferencesResult.RestoredCompleted
+
+    override suspend fun restoreForUser(userId: String): RestorePreferencesResult {
+        return restoreResultToReturn
+    }
+
+    override suspend fun completeOnboarding(
+        wakeUpTime: LocalTime,
+        sleepTime: LocalTime,
+        goals: Set<UserGoal>
+    ) {
+    }
+
+    override suspend fun signOutAndClearLocal() {
     }
 }

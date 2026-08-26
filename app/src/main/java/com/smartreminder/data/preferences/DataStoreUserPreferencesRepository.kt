@@ -74,6 +74,24 @@ class DataStoreUserPreferencesRepository(
         }
     }
 
+    override suspend fun replaceOnboardingPreferences(snapshot: com.smartreminder.domain.model.OnboardingPreferencesSnapshot) {
+        dataStore.edit { prefs ->
+            prefs[PreferenceKeys.WAKE_UP_MINUTE] = snapshot.wakeUpTime.toMinutesOfDay()
+            prefs[PreferenceKeys.SLEEP_MINUTE] = snapshot.sleepTime.toMinutesOfDay()
+            prefs[PreferenceKeys.SELECTED_GOALS] = snapshot.goals.toStorageKeys()
+            prefs[PreferenceKeys.ONBOARDING_COMPLETED] = snapshot.onboardingCompleted
+        }
+    }
+
+    override suspend fun clearOnboardingPreferences() {
+        dataStore.edit { prefs ->
+            prefs.remove(PreferenceKeys.WAKE_UP_MINUTE)
+            prefs.remove(PreferenceKeys.SLEEP_MINUTE)
+            prefs.remove(PreferenceKeys.SELECTED_GOALS)
+            prefs.remove(PreferenceKeys.ONBOARDING_COMPLETED)
+        }
+    }
+
     private fun mapToUserPreferences(prefs: Preferences): UserPreferences {
         val defaults = UserPreferences()
         return UserPreferences(

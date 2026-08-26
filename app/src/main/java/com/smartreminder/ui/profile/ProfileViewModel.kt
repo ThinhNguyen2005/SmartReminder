@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.smartreminder.data.remote.SupabaseManager
 import com.smartreminder.domain.repository.UserPreferencesRepository
+import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,7 +22,7 @@ import java.time.LocalTime
  */
 class ProfileViewModel(
     private val repository: UserPreferencesRepository,
-    private val onSignedOut: () -> Unit = {}
+    private val syncCoordinator: UserPreferencesSyncCoordinator
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ProfileUiState>(ProfileUiState.Loading)
@@ -129,12 +130,16 @@ class ProfileViewModel(
     private fun signOut() {
         viewModelScope.launch {
             try {
-                SupabaseManager.client.auth.signOut()
-            } catch (ignored: Exception) {
-                // Session teardown on device takes precedence
+                syncCoordinator.signOutAndClearLocal()
+                updateLoadedState { it.copy(showSignOutDialog = false) }
+            } catch (e: Exception) {
+                updateLoadedState {
+                    it.copy(
+                        showSignOutDialog = false,
+                        errorMessage = e.localizedMessage ?: "Đăng xuất thất bại. Vui lòng thử lại."
+                    )
+                }
             }
-            updateLoadedState { it.copy(showSignOutDialog = false) }
-            onSignedOut()
         }
     }
 
@@ -151,13 +156,13 @@ class ProfileViewModel(
 
 class ProfileViewModelFactory(
     private val repository: UserPreferencesRepository,
-    private val onSignedOut: () -> Unit = {}
+    private val syncCoordinator: UserPreferencesSyncCoordinator
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ProfileViewModel::class.java)) {
-            return ProfileViewModel(repository, onSignedOut) as T
+            return ProfileViewModel(repository, syncCoordinator) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }

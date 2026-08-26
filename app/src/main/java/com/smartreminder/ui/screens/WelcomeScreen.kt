@@ -79,7 +79,7 @@ private const val HERO_IMAGE_URL =
 fun WelcomeScreen(
     onContinueWithEmail: () -> Unit = {},
     onSignInClick: () -> Unit = {},
-    onLoginSuccess: () -> Unit = {},
+    onLoginSuccess: (needsOnboarding: Boolean) -> Unit = {},
     viewModel: AuthViewModel? = null,
     modifier: Modifier = Modifier
 ) {
@@ -103,7 +103,7 @@ fun WelcomeScreenContent(
     onAction: (AuthUiAction) -> Unit,
     onContinueWithEmail: () -> Unit,
     onSignInClick: () -> Unit,
-    onLoginSuccess: () -> Unit,
+    onLoginSuccess: (needsOnboarding: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -121,7 +121,7 @@ fun WelcomeScreenContent(
                     uiState.userEmail ?: ""
                 )
                 Toast.makeText(context, toastMessage, Toast.LENGTH_SHORT).show()
-                onLoginSuccess()
+                onLoginSuccess(uiState.needsOnboarding)
                 onAction(AuthUiAction.Reset)
             }
             else -> {}
