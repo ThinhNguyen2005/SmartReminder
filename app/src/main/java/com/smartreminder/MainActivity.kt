@@ -30,11 +30,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.smartreminder.di.AppContainer
-import com.smartreminder.domain.model.ThemeMode
+import com.smartreminder.domain.model.preferences.ThemeMode
 import com.smartreminder.ui.app.AppState
 import com.smartreminder.ui.app.AppViewModel
 import com.smartreminder.ui.app.AppViewModelFactory
 import com.smartreminder.ui.auth.AuthViewModel
+import com.smartreminder.ui.auth.WelcomeScreen
 import com.smartreminder.ui.onboarding.OnboardingRoute
 import com.smartreminder.ui.onboarding.OnboardingViewModel
 import com.smartreminder.ui.onboarding.OnboardingViewModelFactory
@@ -46,7 +47,6 @@ import com.smartreminder.ui.profile.ProfileViewModelFactory
 import com.smartreminder.ui.schedules.SchedulesRoute
 import com.smartreminder.ui.schedules.SchedulesViewModel
 import com.smartreminder.ui.schedules.SchedulesViewModelFactory
-import com.smartreminder.ui.screens.WelcomeScreen
 import com.smartreminder.ui.tasks.TasksPlaceholderScreen
 import com.smartreminder.ui.theme.SmartReminderTheme
 import com.smartreminder.ui.today.TodayPlaceholderScreen

@@ -1,4 +1,4 @@
-package com.smartreminder.domain.model
+package com.smartreminder.domain.model.preferences
 
 import java.time.LocalTime
 

@@ -1,7 +1,7 @@
-package com.smartreminder.data.preferences
+package com.smartreminder.data.local.datastore
 
-import com.smartreminder.domain.model.UserGoal
-import com.smartreminder.domain.model.UserPreferences
+import com.smartreminder.domain.model.preferences.UserGoal
+import com.smartreminder.domain.model.preferences.UserPreferences
 import java.time.LocalTime
 
 /**

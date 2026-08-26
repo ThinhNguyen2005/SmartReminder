@@ -1,4 +1,4 @@
-package com.smartreminder.domain.model
+package com.smartreminder.domain.model.preferences
 
 /**
  * Theme preference with stable [storageKey] for persistence.

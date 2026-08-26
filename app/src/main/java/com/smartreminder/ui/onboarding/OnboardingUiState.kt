@@ -2,7 +2,7 @@ package com.smartreminder.ui.onboarding
 
 import androidx.annotation.StringRes
 import com.smartreminder.R
-import com.smartreminder.domain.model.UserGoal
+import com.smartreminder.domain.model.preferences.UserGoal
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale

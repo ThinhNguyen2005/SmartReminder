@@ -1,8 +1,9 @@
 package com.smartreminder.domain.repository
 
-import com.smartreminder.domain.model.ThemeMode
-import com.smartreminder.domain.model.UserGoal
-import com.smartreminder.domain.model.UserPreferences
+import com.smartreminder.domain.model.preferences.OnboardingPreferencesSnapshot
+import com.smartreminder.domain.model.preferences.ThemeMode
+import com.smartreminder.domain.model.preferences.UserGoal
+import com.smartreminder.domain.model.preferences.UserPreferences
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalTime
 
@@ -45,7 +46,7 @@ interface UserPreferencesRepository {
      *
      * @throws java.io.IOException if write fails
      */
-    suspend fun replaceOnboardingPreferences(snapshot: com.smartreminder.domain.model.OnboardingPreferencesSnapshot)
+    suspend fun replaceOnboardingPreferences(snapshot: OnboardingPreferencesSnapshot)
 
     /**
      * Clears all onboarding and rhythm preferences, reverting to defaults.

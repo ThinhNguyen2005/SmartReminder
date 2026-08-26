@@ -1,16 +1,17 @@
-package com.smartreminder.data.preferences
+package com.smartreminder.data.local.datastore
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
-import com.smartreminder.data.preferences.UserPreferencesMapper.toLocalTimeSafe
-import com.smartreminder.data.preferences.UserPreferencesMapper.toMinutesOfDay
-import com.smartreminder.data.preferences.UserPreferencesMapper.toStorageKeys
-import com.smartreminder.data.preferences.UserPreferencesMapper.toUserGoals
-import com.smartreminder.domain.model.ThemeMode
-import com.smartreminder.domain.model.UserGoal
-import com.smartreminder.domain.model.UserPreferences
+import com.smartreminder.data.local.datastore.UserPreferencesMapper.toLocalTimeSafe
+import com.smartreminder.data.local.datastore.UserPreferencesMapper.toMinutesOfDay
+import com.smartreminder.data.local.datastore.UserPreferencesMapper.toStorageKeys
+import com.smartreminder.data.local.datastore.UserPreferencesMapper.toUserGoals
+import com.smartreminder.domain.model.preferences.OnboardingPreferencesSnapshot
+import com.smartreminder.domain.model.preferences.ThemeMode
+import com.smartreminder.domain.model.preferences.UserGoal
+import com.smartreminder.domain.model.preferences.UserPreferences
 import com.smartreminder.domain.repository.UserPreferencesRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -74,7 +75,7 @@ class DataStoreUserPreferencesRepository(
         }
     }
 
-    override suspend fun replaceOnboardingPreferences(snapshot: com.smartreminder.domain.model.OnboardingPreferencesSnapshot) {
+    override suspend fun replaceOnboardingPreferences(snapshot: OnboardingPreferencesSnapshot) {
         dataStore.edit { prefs ->
             prefs[PreferenceKeys.WAKE_UP_MINUTE] = snapshot.wakeUpTime.toMinutesOfDay()
             prefs[PreferenceKeys.SLEEP_MINUTE] = snapshot.sleepTime.toMinutesOfDay()

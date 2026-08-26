@@ -1,4 +1,4 @@
-package com.smartreminder.data.preferences
+package com.smartreminder.data.local.datastore
 
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey

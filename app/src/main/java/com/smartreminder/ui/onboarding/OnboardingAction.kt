@@ -1,6 +1,6 @@
 package com.smartreminder.ui.onboarding
 
-import com.smartreminder.domain.model.UserGoal
+import com.smartreminder.domain.model.preferences.UserGoal
 import java.time.LocalTime
 
 /**

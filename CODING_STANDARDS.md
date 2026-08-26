@@ -156,3 +156,47 @@ Trước khi hoàn tất bất kỳ tính năng nào:
   - [ ] **UI / Presentation Layer**: Screen Composable, ViewModel State transitions, Preview, Strings EN/VI.
   - [ ] **Integration & Pre-flight Verification**: `compileDebugSources` + `test` 100% pass.
 * Cập nhật tiến độ `[x]` minh bạch sau từng bước hoàn thành.
+
+---
+
+## 8. 🏗️ Quy Chuẩn Cấu Trúc Cây Thư Mục & Phân Gói (Directory Tree & Packaging Standards)
+
+> **Quy tắc bắt buộc:** *"Toàn bộ source code phải tuân thủ nghiêm ngặt mô hình Clean Architecture kết hợp Feature Packaging nhất quán. Không chấp nhận sự pha trộn lộn xộn giữa gom theo công nghệ và gom theo tính năng."*
+
+### 8.1. Tầng Dữ Liệu (`data/`) — Phân Định Nguồn Dữ Liệu Rõ Ràng
+* **`data/local/`**: Chứa toàn bộ logic lưu trữ nội bộ thiết bị, phân nhóm theo công nghệ:
+  - `data/local/room/`: `CueDatabase`, `dao/`, `entity/`, `mapper/`, `relation/`, `repository/`.
+  - `data/local/datastore/`: `DataStoreUserPreferencesRepository`, `PreferenceKeys`, `UserPreferencesMapper`. *(CẤM để `data/preferences/` đứng lơ lửng ở gốc `data/`)*.
+* **`data/remote/`**: Chứa toàn bộ logic kết nối Cloud/API, phân nhóm theo dịch vụ hoặc feature:
+  - `data/remote/SupabaseClient.kt`
+  - `data/remote/preferences/`: `SupabaseUserPreferencesCloudRepository`, `UserPreferencesRemoteDto`, `UserPreferencesRemoteMapper`.
+* **`data/sync/`**: Chứa các implementation điều phối đồng bộ chéo giữa Local và Remote:
+  - `data/sync/DefaultUserPreferencesSyncCoordinator.kt`.
+
+### 8.2. Tầng Nghiệp Vụ (`domain/`) — Đóng Gói Theo Bounded Context
+* **`domain/model/`**: Phân nhóm theo Bounded Context khi có từ 2 model liên quan trở lên:
+  - `domain/model/schedule/`: `Routine`, `ScheduleGroup`, `RecurrenceRule`... và `ids/`.
+  - `domain/model/preferences/`: `UserPreferences`, `UserGoal`, `ThemeMode`, `OnboardingPreferencesSnapshot`...
+  - `domain/model/user/`: `UserProfile`...
+  - *(CẤM để dồn ứ các model chuyên biệt của Preferences/User ở gốc `domain/model/` trong khi Schedule lại có folder riêng).*
+* **`domain/repository/`**: Duy trì 100% cấu trúc phẳng:
+  - Tất cả các interface repository (`*Repository`, `*CloudRepository`) phải nằm trực tiếp trong `domain/repository/`.
+* **`domain/<bounded-context>/`**: Chứa các Domain Service / Engine / Coordinator thuần túy:
+  - `domain/schedule/RoutineOccurrenceResolver.kt`
+  - `domain/time/TimeCalculator.kt`
+  - `domain/auth/AuthValidationHelper.kt`
+  - `domain/sync/UserPreferencesSyncCoordinator.kt` (hoặc `domain/preferences/`).
+
+### 8.3. Tầng Giao Diện (`ui/`) — Feature Packaging & Single Responsibility Files
+* **100% Gom theo Feature**:
+  - `ui/auth/`, `ui/onboarding/`, `ui/schedules/`, `ui/profile/`, `ui/tasks/`, `ui/today/`, `ui/theme/`.
+  - **CẤM:** Tuyệt đối không tạo package mồ côi như `ui/screens/` chứa các màn hình riêng lẻ. Mọi màn hình phải thuộc đúng feature (Ví dụ: `WelcomeScreen.kt` bắt buộc phải nằm trong `ui/auth/`).
+* **Quy tắc Single Responsibility File (1 file 1 trách nhiệm duy nhất):**
+  - `[Feature]Screen.kt`: Chỉ chứa Composable UI stateless (nhận state, phát action).
+  - `[Feature]Route.kt`: Tách riêng file cho Composable stateful kết nối ViewModel và Effect. *(CẤM nhét Route chung vào file Screen)*.
+  - `[Feature]ViewModel.kt`: Chỉ chứa class ViewModel.
+  - `[Feature]ViewModelFactory.kt`: Tách riêng file cho ViewModelFactory. *(CẤM nhét ViewModelFactory chung vào file ViewModel)*.
+  - `[Feature]UiState.kt` / `[Feature]Action.kt` / `[Feature]Effect.kt`: Tách riêng file khi có Action/Effect hoặc State phức tạp.
+* **Xóa Bỏ Dead Code Ngay Lập Tức:**
+  - Khi một màn hình thật được tích hợp vào `MainActivity` thay thế placeholder (ví dụ `ProfileRoute` thay thế `ProfilePlaceholderScreen`), bắt buộc phải **xóa bỏ file placeholder đó ngay lập tức**, không để lại file rác trong source code.
+
