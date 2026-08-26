@@ -111,6 +111,31 @@
         <item quantity="other">%1$d mốc thời gian</item>
     </plurals>
 
+    <!-- Chỉnh sửa lịch trình (Giai đoạn D2) -->
+    <string name="routine_editor_create_title">Tạo lịch trình</string>
+    <string name="routine_editor_edit_title">Chỉnh sửa lịch trình</string>
+    <string name="routine_editor_back_description">Quay lại</string>
+    <string name="routine_editor_save">Lưu</string>
+    <string name="routine_editor_saving">Đang lưu…</string>
+    <string name="routine_editor_name_label">Tên lịch trình</string>
+    <string name="routine_editor_name_error_required">Nhập tên lịch trình.</string>
+    <string name="routine_editor_group_label">Nhóm</string>
+    <string name="routine_editor_group_ungrouped">Chưa phân nhóm</string>
+    <string name="routine_editor_recurrence_title">Lặp lại vào</string>
+    <string name="routine_editor_recurrence_error_required">Chọn ít nhất một ngày.</string>
+    <string name="routine_editor_enabled_label">Bật lịch trình</string>
+    <string name="routine_editor_timeline_title">Các mốc thời gian</string>
+    <string name="routine_editor_add_item">Thêm mốc thời gian</string>
+    <string name="routine_editor_edit_item">Chỉnh sửa mốc thời gian</string>
+    <string name="routine_editor_remove_item">Xóa mốc thời gian</string>
+    <string name="routine_editor_item_title_label">Tên mốc thời gian</string>
+    <string name="routine_editor_item_title_error_required">Nhập tên mốc thời gian.</string>
+    <string name="routine_editor_discard_title">Bỏ thay đổi?</string>
+    <string name="routine_editor_discard_message">Các thay đổi chưa lưu sẽ bị mất.</string>
+    <string name="routine_editor_discard_confirm">Bỏ thay đổi</string>
+    <string name="routine_editor_error_load">Không thể tải lịch trình này.</string>
+    <string name="routine_editor_error_save">Không thể lưu lịch trình này.</string>
+
     <!-- Màn hình Profile & Cài đặt -->
     <string name="profile_title">Hồ sơ</string>
     <string name="profile_edit">Chỉnh sửa hồ sơ</string>

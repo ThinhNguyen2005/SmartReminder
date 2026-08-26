@@ -61,10 +61,20 @@
 * Màn hình (Screen Composable) chỉ nhận `uiState: SomeUiState` và phát ra các event lambdas `onAction: () -> Unit`.
 * Không gọi API, không query database và không lưu trữ business logic phức tạp bên trong Composable.
 
-### 3.2. Cấu trúc Khung màn hình (Screen Skeleton)
-* **Top Bar:** Luôn đặt trong `Scaffold(topBar = { ... })`.
-* **Bottom Bar (CTA):** Luôn đặt trong `Scaffold(bottomBar = { ... })` kèm `navigationBarsPadding()`.
-* **Content:** Chảy tự nhiên từ trên xuống dưới (Top-aligned), luôn bọc `.verticalScroll(rememberScrollState())` để an toàn trước font scaling 150%–200% và màn hình nhỏ.
+### 3.2. Cấu trúc Khung màn hình (Screen Skeleton) & Quy Tắc Tránh Lồng TopBar/Scaffold
+* **CẤM Tuyệt Đối Lồng Scaffold (No Nested Scaffold):**
+  - Khung ứng dụng chính (`MainActivity.kt` / `NavigationSuiteScaffold`) đã có sẵn `Scaffold` cung cấp `innerPadding` bao trọn `statusBars` và thanh điều hướng.
+  - Các màn hình con (Screen composables con, các tab `Today`, `Tasks`, `Profile`, `Schedules`, cũng như các màn hình sub-flow/editor như `RoutineEditorScreen`) **KHÔNG ĐƯỢC** bọc thêm một `Scaffold` con nữa bên trong.
+* **Quy Chuẩn Top Bar / Header Màn Hình Tránh Lồng (No Nested TopAppBar):**
+  - **Màn hình con / Sub-flow / Tab:** Sử dụng container `Box` hoặc `Column` bọc ngoài với `modifier.fillMaxSize().background(CueTheme.colors.background)`.
+  - Header/TopBar được đặt cố định ở đầu trang dạng `Row` tùy biến:
+    - Chiều cao chuẩn: `height(56.dp)` kèm padding `padding(horizontal = CueSpacing.Md)` hoặc `CueSpacing.Xl`.
+    - Phía trái: `IconButton` điều hướng (`Icons.AutoMirrored.Outlined.ArrowBack`) với touch target tối thiểu $\ge 48\text{dp}$.
+    - Ở giữa: Tiêu đề `Text` sử dụng typography chuẩn (`titleLarge` hoặc `headlineLarge` tùy phân cấp màn hình), màu `CueTheme.colors.textPrimary`, `FontWeight.SemiBold`.
+    - Phía phải: Action button (`TextButton` lưu/xong hoặc icon chức năng) với màu nhấn `CueTheme.colors.accent`.
+  - **Tránh Lỗi Double Insets (Thừa Top Padding):** CẤM dùng `TopAppBar` mặc định của Material 3 trong màn hình con khi đã nhận `modifier` chứa `innerPadding` từ Scaffold cha, vì `TopAppBar` mặc định luôn chèn thêm `WindowInsets.statusBars` gây lỗi thụt lề kép (double status bar gap / lồng topbar). Nếu bắt buộc dùng `TopAppBar`, phải đặt `windowInsets = WindowInsets(0, 0, 0, 0)`.
+* **Bottom Bar (CTA):** Đối với màn hình độc lập có CTA nổi ở đáy, chỉ áp dụng nếu chưa có thanh điều hướng hoặc dùng `align(Alignment.BottomCenter)` trong `Box` kèm `navigationBarsPadding()`.
+* **Content Scroll:** Chảy tự nhiên từ trên xuống dưới (Top-aligned), luôn bọc `.verticalScroll(rememberScrollState())` và `.imePadding()` để an toàn trước bàn phím ảo, font scaling 150%–200% và màn hình nhỏ.
 * **CẤM:** Không dùng `Arrangement.SpaceBetween` hay `justify-center` làm trôi nổi nội dung giữa màn hình.
 
 ### 3.3. Công thái học Di động (Mobile Ergonomics & Fitts's Law)
