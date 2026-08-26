@@ -1,8 +1,9 @@
 package com.smartreminder.ui.app
 
-import com.smartreminder.domain.model.ThemeMode
-import com.smartreminder.domain.model.UserGoal
-import com.smartreminder.domain.model.UserPreferences
+import com.smartreminder.domain.model.preferences.OnboardingPreferencesSnapshot
+import com.smartreminder.domain.model.preferences.ThemeMode
+import com.smartreminder.domain.model.preferences.UserGoal
+import com.smartreminder.domain.model.preferences.UserPreferences
 import com.smartreminder.domain.repository.UserPreferencesRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -195,7 +196,7 @@ private class FakeAppRepository : UserPreferencesRepository {
         _preferencesFlow.value = _preferencesFlow.value.copy(onboardingCompleted = false)
     }
 
-    override suspend fun replaceOnboardingPreferences(snapshot: com.smartreminder.domain.model.OnboardingPreferencesSnapshot) {
+    override suspend fun replaceOnboardingPreferences(snapshot: OnboardingPreferencesSnapshot) {
         if (shouldThrowOnWrite) throw java.io.IOException("Simulated disk error")
         _preferencesFlow.value = _preferencesFlow.value.copy(
             wakeUpTime = snapshot.wakeUpTime,

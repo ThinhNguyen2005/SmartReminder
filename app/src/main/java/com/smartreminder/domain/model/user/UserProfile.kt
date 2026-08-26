@@ -1,4 +1,4 @@
-package com.smartreminder.domain.model
+package com.smartreminder.domain.model.user
 
 /**
  * Immutable domain model representing user profile information.

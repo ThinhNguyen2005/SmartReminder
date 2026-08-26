@@ -54,7 +54,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.smartreminder.R
-import com.smartreminder.domain.model.UserGoal
+import com.smartreminder.domain.model.preferences.UserGoal
 import com.smartreminder.ui.onboarding.GoalOption
 import com.smartreminder.ui.onboarding.OnboardingUiState
 import com.smartreminder.ui.theme.CueSpacing

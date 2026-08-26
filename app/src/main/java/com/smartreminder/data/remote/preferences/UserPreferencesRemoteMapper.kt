@@ -1,7 +1,7 @@
 package com.smartreminder.data.remote.preferences
 
-import com.smartreminder.domain.model.OnboardingPreferencesSnapshot
-import com.smartreminder.domain.model.UserGoal
+import com.smartreminder.domain.model.preferences.OnboardingPreferencesSnapshot
+import com.smartreminder.domain.model.preferences.UserGoal
 import java.time.LocalTime
 
 /**

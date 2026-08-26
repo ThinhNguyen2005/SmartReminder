@@ -1,6 +1,6 @@
 package com.smartreminder.domain.sync
 
-import com.smartreminder.domain.model.UserGoal
+import com.smartreminder.domain.model.preferences.UserGoal
 import java.time.LocalTime
 
 sealed interface RestorePreferencesResult {

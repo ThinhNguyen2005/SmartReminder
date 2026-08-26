@@ -2,7 +2,6 @@ package com.smartreminder.ui.auth
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.smartreminder.data.remote.SupabaseManager
 import com.smartreminder.domain.auth.GoogleAuthHelper
@@ -124,17 +123,5 @@ class AuthViewModel(
 
     fun resetState() {
         _uiState.update { AuthUiState.Idle }
-    }
-}
-
-class AuthViewModelFactory(
-    private val syncCoordinator: UserPreferencesSyncCoordinator
-) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(AuthViewModel::class.java)) {
-            return AuthViewModel(syncCoordinator) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
 }

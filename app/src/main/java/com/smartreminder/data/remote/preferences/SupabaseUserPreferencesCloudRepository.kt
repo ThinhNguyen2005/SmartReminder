@@ -1,7 +1,7 @@
 package com.smartreminder.data.remote.preferences
 
 import android.util.Log
-import com.smartreminder.domain.model.OnboardingPreferencesSnapshot
+import com.smartreminder.domain.model.preferences.OnboardingPreferencesSnapshot
 import com.smartreminder.domain.repository.UserPreferencesCloudRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from

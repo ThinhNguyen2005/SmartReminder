@@ -56,11 +56,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.smartreminder.R
-import com.smartreminder.domain.model.ThemeMode
+import com.smartreminder.domain.model.preferences.ThemeMode
 import com.smartreminder.ui.onboarding.TimePickerTarget
 import com.smartreminder.ui.onboarding.components.CueTimePickerBottomSheet
 import com.smartreminder.ui.theme.CueSpacing
@@ -69,20 +68,6 @@ import com.smartreminder.ui.theme.SmartReminderTheme
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-
-@Composable
-fun ProfileRoute(
-    viewModel: ProfileViewModel,
-    modifier: Modifier = Modifier
-) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    ProfileScreen(
-        uiState = uiState,
-        onAction = viewModel::onAction,
-        modifier = modifier
-    )
-}
 
 @Composable
 fun ProfileScreen(

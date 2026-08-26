@@ -7,7 +7,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.smartreminder.data.local.room.CueDatabase
 import com.smartreminder.data.local.room.repository.RoomRoutineRepository
 import com.smartreminder.data.local.room.repository.RoomScheduleGroupRepository
-import com.smartreminder.data.preferences.DataStoreUserPreferencesRepository
+import com.smartreminder.data.local.datastore.DataStoreUserPreferencesRepository
 import com.smartreminder.data.remote.SupabaseManager
 import com.smartreminder.data.remote.preferences.SupabaseUserPreferencesCloudRepository
 import com.smartreminder.data.sync.DefaultUserPreferencesSyncCoordinator

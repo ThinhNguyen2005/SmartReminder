@@ -1,6 +1,6 @@
 package com.smartreminder.domain.repository
 
-import com.smartreminder.domain.model.OnboardingPreferencesSnapshot
+import com.smartreminder.domain.model.preferences.OnboardingPreferencesSnapshot
 
 /**
  * Domain contract for remote cloud persistence of onboarding preferences.

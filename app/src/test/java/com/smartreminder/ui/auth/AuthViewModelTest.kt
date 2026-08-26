@@ -1,6 +1,6 @@
 package com.smartreminder.ui.auth
 
-import com.smartreminder.domain.model.UserGoal
+import com.smartreminder.domain.model.preferences.UserGoal
 import com.smartreminder.domain.sync.RestorePreferencesResult
 import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
 import kotlinx.coroutines.Dispatchers

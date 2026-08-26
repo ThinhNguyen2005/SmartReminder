@@ -1,4 +1,4 @@
-package com.smartreminder.ui.screens
+package com.smartreminder.ui.auth
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke

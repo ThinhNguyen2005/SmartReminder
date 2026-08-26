@@ -1,9 +1,9 @@
 package com.smartreminder.data.sync
 
-import com.smartreminder.domain.model.OnboardingPreferencesSnapshot
-import com.smartreminder.domain.model.ThemeMode
-import com.smartreminder.domain.model.UserGoal
-import com.smartreminder.domain.model.UserPreferences
+import com.smartreminder.domain.model.preferences.OnboardingPreferencesSnapshot
+import com.smartreminder.domain.model.preferences.ThemeMode
+import com.smartreminder.domain.model.preferences.UserGoal
+import com.smartreminder.domain.model.preferences.UserPreferences
 import com.smartreminder.domain.repository.UserPreferencesCloudRepository
 import com.smartreminder.domain.repository.UserPreferencesRepository
 import com.smartreminder.domain.sync.RestorePreferencesResult
