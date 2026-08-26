@@ -22,6 +22,7 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -44,12 +45,15 @@ import com.smartreminder.ui.profile.ProfileScreen
 import com.smartreminder.ui.profile.ProfileUiState
 import com.smartreminder.ui.profile.ProfileViewModel
 import com.smartreminder.ui.profile.ProfileViewModelFactory
+import com.smartreminder.ui.schedules.SchedulesHost
 import com.smartreminder.ui.schedules.SchedulesRoute
 import com.smartreminder.ui.schedules.SchedulesViewModel
 import com.smartreminder.ui.schedules.SchedulesViewModelFactory
+import com.smartreminder.ui.schedules.editor.UuidRoutineEditorIdGenerator
 import com.smartreminder.ui.tasks.TasksPlaceholderScreen
 import com.smartreminder.ui.theme.SmartReminderTheme
 import com.smartreminder.ui.today.TodayPlaceholderScreen
+import java.time.Clock
 
 enum class OnboardingFlowStage {
     WELCOME,
@@ -148,6 +152,7 @@ fun SmartReminderApp(
     appContainer: AppContainer? = null
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.TODAY) }
+    val destinationStateHolder = rememberSaveableStateHolder()
 
     NavigationSuiteScaffold(
         navigationSuiteItems = {
@@ -167,45 +172,61 @@ fun SmartReminderApp(
         }
     ) {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-            when (currentDestination) {
-                AppDestination.TODAY -> TodayPlaceholderScreen(
-                    modifier = Modifier.padding(innerPadding)
-                )
-                AppDestination.SCHEDULES -> SchedulesRoute(
-                    viewModel = schedulesViewModel,
-                    onOpenRoutine = {},
-                    onCreateRoutine = {},
-                    onManageGroups = {},
-                    modifier = Modifier.padding(innerPadding)
-                )
-                AppDestination.TASKS -> TasksPlaceholderScreen(
-                    modifier = Modifier.padding(innerPadding)
-                )
-                AppDestination.PROFILE -> {
-                    if (appContainer != null) {
-                        val profileViewModel: ProfileViewModel = viewModel(
-                            factory = ProfileViewModelFactory(
-                                repository = appContainer.userPreferencesRepository,
-                                syncCoordinator = appContainer.userPreferencesSyncCoordinator
+            destinationStateHolder.SaveableStateProvider(currentDestination) {
+                when (currentDestination) {
+                    AppDestination.TODAY -> TodayPlaceholderScreen(
+                        modifier = Modifier.padding(innerPadding)
+                    )
+                    AppDestination.SCHEDULES -> {
+                        if (appContainer != null) {
+                            SchedulesHost(
+                                schedulesViewModel = schedulesViewModel,
+                                scheduleGroupRepository = appContainer.scheduleGroupRepository,
+                                routineRepository = appContainer.routineRepository,
+                                idGenerator = UuidRoutineEditorIdGenerator,
+                                clock = Clock.systemUTC(),
+                                onManageGroups = {},
+                                modifier = Modifier.padding(innerPadding)
                             )
-                        )
-                        ProfileRoute(
-                            viewModel = profileViewModel,
-                            modifier = Modifier.padding(innerPadding)
-                        )
-                    } else {
-                        ProfileScreen(
-                            uiState = ProfileUiState.Loaded(
-                                displayName = "Alex",
-                                email = "alex@email.com",
-                                avatarUrl = null,
-                                wakeUpTime = java.time.LocalTime.of(6, 30),
-                                sleepTime = java.time.LocalTime.of(22, 30),
-                                themeMode = ThemeMode.SYSTEM
-                            ),
-                            onAction = {},
-                            modifier = Modifier.padding(innerPadding)
-                        )
+                        } else {
+                            SchedulesRoute(
+                                viewModel = schedulesViewModel,
+                                onOpenRoutine = {},
+                                onCreateRoutine = {},
+                                onManageGroups = {},
+                                modifier = Modifier.padding(innerPadding)
+                            )
+                        }
+                    }
+                    AppDestination.TASKS -> TasksPlaceholderScreen(
+                        modifier = Modifier.padding(innerPadding)
+                    )
+                    AppDestination.PROFILE -> {
+                        if (appContainer != null) {
+                            val profileViewModel: ProfileViewModel = viewModel(
+                                factory = ProfileViewModelFactory(
+                                    repository = appContainer.userPreferencesRepository,
+                                    syncCoordinator = appContainer.userPreferencesSyncCoordinator
+                                )
+                            )
+                            ProfileRoute(
+                                viewModel = profileViewModel,
+                                modifier = Modifier.padding(innerPadding)
+                            )
+                        } else {
+                            ProfileScreen(
+                                uiState = ProfileUiState.Loaded(
+                                    displayName = "Alex",
+                                    email = "alex@email.com",
+                                    avatarUrl = null,
+                                    wakeUpTime = java.time.LocalTime.of(6, 30),
+                                    sleepTime = java.time.LocalTime.of(22, 30),
+                                    themeMode = ThemeMode.SYSTEM
+                                ),
+                                onAction = {},
+                                modifier = Modifier.padding(innerPadding)
+                            )
+                        }
                     }
                 }
             }

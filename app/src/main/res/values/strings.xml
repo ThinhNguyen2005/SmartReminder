@@ -112,6 +112,31 @@
         <item quantity="other">%1$d timeline items</item>
     </plurals>
 
+    <!-- Routine editor (Phase D2) -->
+    <string name="routine_editor_create_title">Create routine</string>
+    <string name="routine_editor_edit_title">Edit routine</string>
+    <string name="routine_editor_back_description">Go back</string>
+    <string name="routine_editor_save">Save</string>
+    <string name="routine_editor_saving">Saving…</string>
+    <string name="routine_editor_name_label">Routine name</string>
+    <string name="routine_editor_name_error_required">Enter a routine name.</string>
+    <string name="routine_editor_group_label">Group</string>
+    <string name="routine_editor_group_ungrouped">Ungrouped</string>
+    <string name="routine_editor_recurrence_title">Repeats on</string>
+    <string name="routine_editor_recurrence_error_required">Select at least one day.</string>
+    <string name="routine_editor_enabled_label">Routine enabled</string>
+    <string name="routine_editor_timeline_title">Timeline</string>
+    <string name="routine_editor_add_item">Add timeline item</string>
+    <string name="routine_editor_edit_item">Edit timeline item</string>
+    <string name="routine_editor_remove_item">Remove timeline item</string>
+    <string name="routine_editor_item_title_label">Item title</string>
+    <string name="routine_editor_item_title_error_required">Enter an item title.</string>
+    <string name="routine_editor_discard_title">Discard changes?</string>
+    <string name="routine_editor_discard_message">Your unsaved changes will be lost.</string>
+    <string name="routine_editor_discard_confirm">Discard</string>
+    <string name="routine_editor_error_load">Unable to load this routine.</string>
+    <string name="routine_editor_error_save">Unable to save this routine.</string>
+
     <!-- Profile & Settings Screen -->
     <string name="profile_title">Profile</string>
     <string name="profile_edit">Edit Profile</string>
