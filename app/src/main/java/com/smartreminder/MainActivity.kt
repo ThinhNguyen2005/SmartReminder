@@ -52,7 +52,11 @@ import com.smartreminder.ui.schedules.SchedulesViewModelFactory
 import com.smartreminder.ui.schedules.editor.UuidRoutineEditorIdGenerator
 import com.smartreminder.ui.tasks.TasksPlaceholderScreen
 import com.smartreminder.ui.theme.SmartReminderTheme
-import com.smartreminder.ui.today.TodayPlaceholderScreen
+import com.smartreminder.ui.today.TodayRoute
+import com.smartreminder.ui.today.TodayScreen
+import com.smartreminder.ui.today.TodayUiState
+import com.smartreminder.ui.today.TodayViewModel
+import com.smartreminder.ui.today.TodayViewModelFactory
 import java.time.Clock
 
 enum class OnboardingFlowStage {
@@ -174,9 +178,36 @@ fun SmartReminderApp(
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             destinationStateHolder.SaveableStateProvider(currentDestination) {
                 when (currentDestination) {
-                    AppDestination.TODAY -> TodayPlaceholderScreen(
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    AppDestination.TODAY -> {
+                        if (appContainer != null) {
+                            val todayViewModel: TodayViewModel = viewModel(
+                                factory = TodayViewModelFactory(
+                                    userPreferencesRepository = appContainer.userPreferencesRepository,
+                                    routineRepository = appContainer.routineRepository,
+                                    taskRepository = appContainer.taskRepository
+                                )
+                            )
+                            TodayRoute(
+                                viewModel = todayViewModel,
+                                modifier = Modifier.padding(innerPadding)
+                            )
+                        } else {
+                            TodayScreen(
+                                uiState = TodayUiState.Success(
+                                    userName = "Alex",
+                                    userAvatarUrl = null,
+                                    currentDate = java.time.LocalDate.now(),
+                                    currentTime = java.time.LocalTime.now(),
+                                    progress = com.smartreminder.domain.model.today.DailyProgress(0, 0),
+                                    aiSuggestion = null,
+                                    timelineItems = emptyList(),
+                                    activeConflict = null
+                                ),
+                                onAction = {},
+                                modifier = Modifier.padding(innerPadding)
+                            )
+                        }
+                    }
                     AppDestination.SCHEDULES -> {
                         if (appContainer != null) {
                             SchedulesHost(
