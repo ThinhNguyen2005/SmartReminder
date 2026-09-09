@@ -19,18 +19,21 @@ class DefaultUserPreferencesSyncCoordinator(
     private val localRepository: UserPreferencesRepository,
     private val cloudRepository: UserPreferencesCloudRepository,
     private val getCurrentUserId: () -> String?,
-    private val signOutAuth: suspend () -> Unit
+    private val signOutAuth: suspend () -> Unit,
+    private val clearLocalDatabase: (suspend () -> Unit)? = null
 ) : UserPreferencesSyncCoordinator {
 
     constructor(
         localRepository: UserPreferencesRepository,
         cloudRepository: UserPreferencesCloudRepository,
-        supabase: SupabaseClient
+        supabase: SupabaseClient,
+        clearLocalDatabase: (suspend () -> Unit)? = null
     ) : this(
         localRepository = localRepository,
         cloudRepository = cloudRepository,
         getCurrentUserId = { supabase.auth.currentUserOrNull()?.id },
-        signOutAuth = { supabase.auth.signOut() }
+        signOutAuth = { supabase.auth.signOut() },
+        clearLocalDatabase = clearLocalDatabase
     )
 
     override suspend fun restoreForUser(userId: String): RestorePreferencesResult {
@@ -38,8 +41,9 @@ class DefaultUserPreferencesSyncCoordinator(
         val remoteSnapshot = cloudRepository.getForUser(userId)
 
         return if (remoteSnapshot == null) {
-            // Case A: New account -> Clear local onboarding data to prevent inheriting guest data
+            // Case A: New account -> Clear local onboarding data & database to prevent inheriting previous user's data
             localRepository.clearOnboardingPreferences()
+            clearLocalDatabase?.invoke()
             RestorePreferencesResult.NeedsOnboarding
         } else if (!remoteSnapshot.onboardingCompleted) {
             // Case B: Remote exists but onboarding not completed
@@ -95,5 +99,8 @@ class DefaultUserPreferencesSyncCoordinator(
 
         // 3. Clear local onboarding preferences (theme is preserved)
         localRepository.clearOnboardingPreferences()
+
+        // 4. Clear local database tables to ensure account isolation
+        clearLocalDatabase?.invoke()
     }
 }

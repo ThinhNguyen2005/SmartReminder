@@ -7,12 +7,14 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.smartreminder.data.local.room.CueDatabase
 import com.smartreminder.data.local.room.repository.RoomRoutineRepository
 import com.smartreminder.data.local.room.repository.RoomScheduleGroupRepository
+import com.smartreminder.data.local.room.repository.RoomTaskRepository
 import com.smartreminder.data.local.datastore.DataStoreUserPreferencesRepository
 import com.smartreminder.data.remote.SupabaseManager
 import com.smartreminder.data.remote.preferences.SupabaseUserPreferencesCloudRepository
 import com.smartreminder.data.sync.DefaultUserPreferencesSyncCoordinator
 import com.smartreminder.domain.repository.RoutineRepository
 import com.smartreminder.domain.repository.ScheduleGroupRepository
+import com.smartreminder.domain.repository.TaskRepository
 import com.smartreminder.domain.repository.UserPreferencesCloudRepository
 import com.smartreminder.domain.repository.UserPreferencesRepository
 import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
@@ -35,7 +37,12 @@ class AppContainer(private val context: Context) {
         DefaultUserPreferencesSyncCoordinator(
             localRepository = userPreferencesRepository,
             cloudRepository = userPreferencesCloudRepository,
-            supabase = SupabaseManager.client
+            supabase = SupabaseManager.client,
+            clearLocalDatabase = {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    cueDatabase.clearAllTables()
+                }
+            }
         )
     }
 
@@ -49,6 +56,10 @@ class AppContainer(private val context: Context) {
 
     val routineRepository: RoutineRepository by lazy {
         RoomRoutineRepository(cueDatabase.routineDao())
+    }
+
+    val taskRepository: TaskRepository by lazy {
+        RoomTaskRepository(cueDatabase.taskDao())
     }
 }
 
