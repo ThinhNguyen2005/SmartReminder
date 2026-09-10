@@ -34,6 +34,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -97,18 +98,88 @@ class RoomCollaborationRepositoryRefreshTest {
         assertEquals("https://example.test/remote.png", domainMember.avatarUrl)
     }
 
-    private fun cachedGroup(name: String) = CachedCollaborationGroupEntity(
-        id = "group-1",
+    @Test
+    fun groupsRefreshSuccessThenDetailFailureKeepsExistingMemberProfile() = runTest {
+        val cache = RoomCollaborationCacheDataSource(database)
+        cache.replaceGroup(
+            group = cachedGroup("Cached name"),
+            members = listOf(cachedMember())
+        )
+        val remote = RefreshRemoteDataSource().apply {
+            detailFailure = IllegalStateException("detail unavailable")
+        }
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        val result = repository.updateGroup(
+            UpdateGroupCommand(CollaborationGroupId("group-1"), "Updated name")
+        )
+
+        assertEquals(CollaborationMutationResult.Applied, result)
+        assertEquals(listOf("fetchGroups", "fetchGroup"), remote.readCalls)
+        val retainedMember = database.collaborationCacheDao()
+            .observeMembers("group-1")
+            .first()
+            .singleOrNull()
+        assertNotNull(retainedMember)
+        assertEquals("Cached member", retainedMember?.displayName)
+        assertEquals("https://example.test/cached.png", retainedMember?.avatarUrl)
+    }
+
+    @Test
+    fun groupsReconciliationRemovesStaleGroupsAndEmptyPayloadClearsAll() = runTest {
+        val cache = RoomCollaborationCacheDataSource(database)
+        cache.replaceGroup(
+            group = cachedGroup("Group one", id = "group-1"),
+            members = listOf(cachedMember(groupId = "group-1", userId = "member-1"))
+        )
+        cache.replaceGroup(
+            group = cachedGroup("Group two", id = "group-2"),
+            members = listOf(cachedMember(groupId = "group-2", userId = "member-2"))
+        )
+
+        cache.replaceGroups(listOf(cachedGroup("Updated group one", id = "group-1")))
+
+        assertEquals(
+            listOf("group-1"),
+            database.collaborationCacheDao().observeGroups().first().map { it.id }
+        )
+        assertEquals(
+            listOf("member-1"),
+            database.collaborationCacheDao().observeMembers("group-1").first().map { it.userId }
+        )
+        assertTrue(database.collaborationCacheDao().observeMembers("group-2").first().isEmpty())
+
+        cache.replaceGroups(emptyList())
+
+        assertTrue(database.collaborationCacheDao().observeGroups().first().isEmpty())
+        assertTrue(database.collaborationCacheDao().observeMembers("group-1").first().isEmpty())
+    }
+
+    private fun cachedGroup(name: String, id: String = "group-1") = CachedCollaborationGroupEntity(
+        id = id,
         name = name,
         description = null,
         createdBy = "owner-1",
         createdAt = 1L,
         updatedAt = 1L
     )
+
+    private fun cachedMember(
+        groupId: String = "group-1",
+        userId: String = "member-1"
+    ) = CachedGroupMemberEntity(
+        groupId = groupId,
+        userId = userId,
+        role = "MEMBER",
+        joinedAt = 1L,
+        displayName = "Cached member",
+        avatarUrl = "https://example.test/cached.png"
+    )
 }
 
 private class RefreshRemoteDataSource : CollaborationRemoteDataSource {
     val readCalls = mutableListOf<String>()
+    var detailFailure: Throwable? = null
 
     private val group = CollaborationGroupRemoteDto(
         id = "group-1",
@@ -126,6 +197,7 @@ private class RefreshRemoteDataSource : CollaborationRemoteDataSource {
 
     override suspend fun fetchGroup(groupId: String): CollaborationGroupRemoteDto? {
         readCalls += "fetchGroup"
+        detailFailure?.let { throw it }
         return group
     }
 

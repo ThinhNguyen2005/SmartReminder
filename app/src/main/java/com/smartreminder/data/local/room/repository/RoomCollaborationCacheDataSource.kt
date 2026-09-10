@@ -30,8 +30,16 @@ class RoomCollaborationCacheDataSource(
 
     override suspend fun replaceGroups(groups: List<CachedCollaborationGroupEntity>) {
         database.withTransaction {
-            dao.deleteAllGroups()
-            if (groups.isNotEmpty()) dao.upsertGroups(groups)
+            val distinctGroups = groups.distinctBy(CachedCollaborationGroupEntity::id)
+            if (distinctGroups.isEmpty()) {
+                dao.deleteAllGroups()
+            } else {
+                // Retained parents are upserted in place so their member/task/profile
+                // children survive a later detail-refresh failure. Only stale parents
+                // are deleted, which intentionally cascades their own child rows.
+                dao.deleteGroupsNotIn(distinctGroups.map(CachedCollaborationGroupEntity::id))
+                dao.upsertGroups(distinctGroups)
+            }
         }
     }
 

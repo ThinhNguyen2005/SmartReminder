@@ -30,6 +30,9 @@ interface CollaborationCacheDao {
     @Query("DELETE FROM cached_collaboration_groups")
     suspend fun deleteAllGroups()
 
+    @Query("DELETE FROM cached_collaboration_groups WHERE id NOT IN (:groupIds)")
+    suspend fun deleteGroupsNotIn(groupIds: List<String>)
+
     @Query("DELETE FROM cached_collaboration_groups WHERE id = :groupId")
     suspend fun deleteGroup(groupId: String)
 
