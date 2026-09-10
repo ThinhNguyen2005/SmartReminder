@@ -70,6 +70,68 @@ class CollaborationCacheDaoTest {
     }
 
     @Test
+    fun givenMembersWithSameJoinedAt_whenObserved_thenOrdersByUserIdAndKeepsProfileFields() = runTest {
+        val cacheDao = database.collaborationCacheDao()
+        cacheDao.upsertGroup(group())
+        cacheDao.upsertMembers(
+            listOf(
+                member(userId = "user_b", displayName = "Binh", avatarUrl = "https://example.com/b.png"),
+                member(userId = "user_a", displayName = "An", avatarUrl = null)
+            )
+        )
+
+        val observed = cacheDao.observeMembers("group_1").first()
+
+        assertEquals(listOf("user_a", "user_b"), observed.map { it.userId })
+        assertEquals("An", observed[0].displayName)
+        assertEquals("https://example.com/b.png", observed[1].avatarUrl)
+    }
+
+    @Test
+    fun givenMembersForMultipleGroups_whenReplacingAndDeletingScopedMember_thenOnlyTargetRowsChange() = runTest {
+        val cacheDao = database.collaborationCacheDao()
+        cacheDao.upsertGroup(group(id = "group_1"))
+        cacheDao.upsertGroup(group(id = "group_2"))
+        cacheDao.upsertMembers(
+            listOf(
+                member(groupId = "group_1", userId = "old_user"),
+                member(groupId = "group_2", userId = "kept_user")
+            )
+        )
+
+        cacheDao.replaceMembers(
+            "group_1",
+            listOf(member(groupId = "group_1", userId = "new_user"))
+        )
+        cacheDao.deleteMember(groupId = "group_1", userId = "new_user")
+
+        assertEquals(emptyList<String>(), cacheDao.observeMembers("group_1").first().map { it.userId })
+        assertEquals(listOf("kept_user"), cacheDao.observeMembers("group_2").first().map { it.userId })
+    }
+
+    @Test
+    fun givenInvitesForMultipleGroups_whenReplacingAndDeletingScopedInvite_thenOnlyTargetRowsChange() = runTest {
+        val cacheDao = database.collaborationCacheDao()
+        cacheDao.upsertInvites(
+            listOf(
+                invite(id = "invite_old", groupId = "group_1", createdAt = 1L),
+                invite(id = "invite_other", groupId = "group_2", createdAt = 2L)
+            )
+        )
+
+        cacheDao.replaceInvites(
+            "group_1",
+            listOf(invite(id = "invite_new", groupId = "group_1", createdAt = 3L))
+        )
+        assertEquals(listOf("invite_new"), cacheDao.observeInvites("group_1").first().map { it.id })
+        assertEquals(listOf("invite_other"), cacheDao.observeInvites("group_2").first().map { it.id })
+
+        cacheDao.deleteInvite(groupId = "group_1", inviteId = "invite_new")
+
+        assertEquals(listOf("invite_other"), cacheDao.observeInvites().first().map { it.id })
+    }
+
+    @Test
     fun givenTasksWithSameCreatedAt_whenObserved_thenOrdersByStableIdTieBreaker() = runTest {
         val cacheDao = database.collaborationCacheDao()
         cacheDao.upsertGroup(group())
@@ -213,6 +275,30 @@ class CollaborationCacheDaoTest {
         version = 1L,
         createdAt = createdAt,
         updatedAt = createdAt
+    )
+
+    private fun member(
+        groupId: String = "group_1",
+        userId: String,
+        displayName: String? = null,
+        avatarUrl: String? = null
+    ) = CachedGroupMemberEntity(
+        groupId = groupId,
+        userId = userId,
+        role = "MEMBER",
+        joinedAt = 1L,
+        displayName = displayName,
+        avatarUrl = avatarUrl
+    )
+
+    private fun invite(id: String, groupId: String, createdAt: Long) = CachedGroupInviteEntity(
+        id = id,
+        groupId = groupId,
+        inviterId = "owner_1",
+        inviteeUserId = "user_1",
+        status = "PENDING",
+        createdAt = createdAt,
+        respondedAt = null
     )
 
     private fun command(

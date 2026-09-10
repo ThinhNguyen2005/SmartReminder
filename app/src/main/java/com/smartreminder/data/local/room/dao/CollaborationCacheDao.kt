@@ -34,14 +34,25 @@ interface CollaborationCacheDao {
     @Upsert
     suspend fun upsertMembers(members: List<CachedGroupMemberEntity>)
 
+    @Transaction
+    suspend fun upsertMembers(groupId: String, members: List<CachedGroupMemberEntity>) {
+        require(members.all { it.groupId == groupId }) {
+            "Every member must belong to the requested group"
+        }
+        if (members.isNotEmpty()) upsertMembers(members)
+    }
+
     @Query("DELETE FROM cached_group_members WHERE group_id = :groupId")
     suspend fun deleteMembersForGroup(groupId: String)
 
     @Transaction
     suspend fun replaceMembers(groupId: String, members: List<CachedGroupMemberEntity>) {
         deleteMembersForGroup(groupId)
-        if (members.isNotEmpty()) upsertMembers(members)
+        upsertMembers(groupId, members)
     }
+
+    @Query("DELETE FROM cached_group_members WHERE group_id = :groupId AND user_id = :userId")
+    suspend fun deleteMember(groupId: String, userId: String)
 
     // Tasks
     @Query("SELECT * FROM cached_group_tasks WHERE group_id = :groupId ORDER BY created_at ASC, id ASC")
@@ -57,8 +68,31 @@ interface CollaborationCacheDao {
     @Query("SELECT * FROM cached_group_invites ORDER BY created_at DESC, id ASC")
     fun observeInvites(): Flow<List<CachedGroupInviteEntity>>
 
+    @Query("SELECT * FROM cached_group_invites WHERE group_id = :groupId ORDER BY created_at DESC, id ASC")
+    fun observeInvites(groupId: String): Flow<List<CachedGroupInviteEntity>>
+
     @Upsert
     suspend fun upsertInvites(invites: List<CachedGroupInviteEntity>)
+
+    @Transaction
+    suspend fun upsertInvites(groupId: String, invites: List<CachedGroupInviteEntity>) {
+        require(invites.all { it.groupId == groupId }) {
+            "Every invite must belong to the requested group"
+        }
+        if (invites.isNotEmpty()) upsertInvites(invites)
+    }
+
+    @Query("DELETE FROM cached_group_invites WHERE group_id = :groupId")
+    suspend fun deleteInvitesForGroup(groupId: String)
+
+    @Query("DELETE FROM cached_group_invites WHERE group_id = :groupId AND id = :inviteId")
+    suspend fun deleteInvite(groupId: String, inviteId: String)
+
+    @Transaction
+    suspend fun replaceInvites(groupId: String, invites: List<CachedGroupInviteEntity>) {
+        deleteInvitesForGroup(groupId)
+        upsertInvites(groupId, invites)
+    }
 
     // Reminders
     @Query("SELECT * FROM cached_group_reminders WHERE group_id = :groupId ORDER BY remind_at ASC, id ASC")

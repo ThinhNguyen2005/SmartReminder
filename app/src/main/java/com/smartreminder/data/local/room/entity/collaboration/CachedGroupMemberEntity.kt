@@ -24,5 +24,9 @@ data class CachedGroupMemberEntity(
     @ColumnInfo(name = "role")
     val role: String,
     @ColumnInfo(name = "joined_at")
-    val joinedAt: Long
+    val joinedAt: Long,
+    @ColumnInfo(name = "display_name")
+    val displayName: String? = null,
+    @ColumnInfo(name = "avatar_url")
+    val avatarUrl: String? = null
 )

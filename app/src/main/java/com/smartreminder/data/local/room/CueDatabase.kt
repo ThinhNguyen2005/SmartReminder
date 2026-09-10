@@ -21,6 +21,7 @@ import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskEnt
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskReminderEntity
 import com.smartreminder.data.local.room.entity.collaboration.PendingGroupCommandEntity
 import com.smartreminder.data.local.room.migration.MIGRATION_1_2
+import com.smartreminder.data.local.room.migration.MIGRATION_2_3
 
 @Database(
     entities = [
@@ -37,7 +38,7 @@ import com.smartreminder.data.local.room.migration.MIGRATION_1_2
         CachedGroupReminderEntity::class,
         PendingGroupCommandEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class CueDatabase : RoomDatabase() {
@@ -56,7 +57,7 @@ abstract class CueDatabase : RoomDatabase() {
                 CueDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
         }
     }
