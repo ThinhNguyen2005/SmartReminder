@@ -18,10 +18,35 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+/** Narrow RPC transport seam for exact request tests without a live Supabase client. */
+fun interface CollaborationRpcInvoker {
+    suspend fun invoke(
+        function: String,
+        parameters: JsonObject
+    ): CollaborationMutationEnvelopeRemoteDto
+}
+
 /** PostgREST/RPC implementation; no Supabase type escapes this data boundary. */
-class SupabaseCollaborationRemoteDataSource(
-    private val supabase: SupabaseClient
+class SupabaseCollaborationRemoteDataSource private constructor(
+    private val supabaseProvider: (() -> SupabaseClient)?,
+    private val rpcInvoker: CollaborationRpcInvoker
 ) : CollaborationRemoteDataSource {
+
+    constructor(supabase: SupabaseClient) : this(
+        supabaseProvider = { supabase },
+        rpcInvoker = CollaborationRpcInvoker { function, parameters ->
+            supabase.postgrest.rpc(function, parameters).decodeAs()
+        }
+    )
+
+    constructor(rpcInvoker: CollaborationRpcInvoker) : this(
+        supabaseProvider = null,
+        rpcInvoker = rpcInvoker
+    )
+
+    private val supabase: SupabaseClient
+        get() = supabaseProvider?.invoke()
+            ?: error("A Supabase client is required for PostgREST reads")
 
     override suspend fun fetchGroups(): List<CollaborationGroupRemoteDto> =
         supabase.from(GROUPS_TABLE).select().decodeList()
@@ -110,7 +135,7 @@ class SupabaseCollaborationRemoteDataSource(
         function: String,
         parameters: JsonObject
     ): CollaborationMutationEnvelopeRemoteDto =
-        supabase.postgrest.rpc(function, parameters).decodeAs()
+        rpcInvoker.invoke(function, parameters)
 
     companion object {
         const val GROUPS_TABLE = "collaboration_groups"

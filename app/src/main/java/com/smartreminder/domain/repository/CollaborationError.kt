@@ -29,5 +29,9 @@ sealed interface CollaborationError {
     data object InviteAlreadyPending : CollaborationError
     data object AlreadyMember : CollaborationError
     data class SyncRejected(val message: String? = null) : CollaborationError
+    data class MappingFailure(
+        val message: String,
+        val cause: Throwable? = null
+    ) : CollaborationError
     data class Unknown(val cause: Throwable? = null) : CollaborationError
 }

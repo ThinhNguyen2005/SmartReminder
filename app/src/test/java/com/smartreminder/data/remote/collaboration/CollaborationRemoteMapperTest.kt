@@ -10,6 +10,7 @@ import com.smartreminder.domain.repository.CollaborationError
 import com.smartreminder.domain.repository.CollaborationMutationResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.time.Instant
 
@@ -36,6 +37,8 @@ class CollaborationRemoteMapperTest {
         assertEquals(UserId("user-1"), member.userId)
         assertEquals(GroupRole.OWNER, member.role)
         assertEquals(Instant.parse("2026-09-10T10:00:00Z"), member.joinedAt)
+        assertEquals("Lan", member.displayName)
+        assertEquals("https://example.test/lan.png", member.avatarUrl)
         assertEquals(
             CachedGroupMemberEntity(
                 groupId = "group-1",
@@ -47,6 +50,23 @@ class CollaborationRemoteMapperTest {
             ),
             cache
         )
+    }
+
+    @Test
+    fun `cached member profile maps to typed domain`() {
+        val member = CollaborationRemoteMapper.fromCache(
+            CachedGroupMemberEntity(
+                groupId = "group-1",
+                userId = "user-1",
+                role = "MEMBER",
+                joinedAt = Instant.parse("2026-09-10T10:00:00Z").toEpochMilli(),
+                displayName = "Lan",
+                avatarUrl = "https://example.test/lan.png"
+            )
+        )
+
+        assertEquals("Lan", member.displayName)
+        assertEquals("https://example.test/lan.png", member.avatarUrl)
     }
 
     @Test
@@ -85,5 +105,60 @@ class CollaborationRemoteMapperTest {
             CollaborationError.InviteAlreadyPending,
             (result as CollaborationMutationResult.Failure).error
         )
+    }
+
+    @Test
+    fun `unknown member role is a mapping failure`() {
+        assertThrows(CollaborationMappingException::class.java) {
+            CollaborationRemoteMapper.toDomain(
+                CollaborationMemberRemoteDto(
+                    groupId = "group-1",
+                    userId = "user-1",
+                    role = "OWNER_OF_EVERYTHING",
+                    joinedAt = "2026-09-10T10:00:00Z"
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `unknown invite status is a mapping failure`() {
+        assertThrows(CollaborationMappingException::class.java) {
+            CollaborationRemoteMapper.toDomain(
+                CollaborationInviteRemoteDto(
+                    id = "invite-1",
+                    groupId = "group-1",
+                    inviterId = "owner-1",
+                    inviteeUserId = "user-2",
+                    status = "REVOKED_BY_MAGIC",
+                    createdAt = "2026-09-10T10:00:00Z"
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `invalid timestamp is a mapping failure`() {
+        assertThrows(CollaborationMappingException::class.java) {
+            CollaborationRemoteMapper.toDomain(
+                CollaborationGroupRemoteDto(
+                    id = "group-1",
+                    name = "Group",
+                    description = null,
+                    createdBy = "owner-1",
+                    createdAt = "not-a-timestamp",
+                    updatedAt = "2026-09-10T10:00:00Z"
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `unknown mutation status is a mapping failure`() {
+        assertThrows(CollaborationMappingException::class.java) {
+            CollaborationRemoteMapper.toMutationResult(
+                CollaborationMutationEnvelopeRemoteDto(status = "MAYBE_APPLIED")
+            )
+        }
     }
 }

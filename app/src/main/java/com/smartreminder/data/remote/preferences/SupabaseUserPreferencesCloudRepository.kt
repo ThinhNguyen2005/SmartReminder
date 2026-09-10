@@ -11,8 +11,13 @@ import io.github.jan.supabase.postgrest.from
  * Interacts with public.user_preferences table under Row Level Security (RLS).
  */
 class SupabaseUserPreferencesCloudRepository(
-    private val supabase: SupabaseClient
+    private val supabaseProvider: () -> SupabaseClient
 ) : UserPreferencesCloudRepository {
+
+    constructor(supabase: SupabaseClient) : this({ supabase })
+
+    private val supabase: SupabaseClient
+        get() = supabaseProvider()
 
     override suspend fun getForUser(userId: String): OnboardingPreferencesSnapshot? {
         Log.d("SmartReminderAuth", "SupabaseCloudRepo: Querying table '$TABLE_NAME' for user_id=$userId...")

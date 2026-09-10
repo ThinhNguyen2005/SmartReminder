@@ -28,14 +28,15 @@ class AppContainer(private val context: Context) {
     }
 
     val userPreferencesCloudRepository: UserPreferencesCloudRepository by lazy {
-        SupabaseUserPreferencesCloudRepository(SupabaseManager.client)
+        SupabaseUserPreferencesCloudRepository { SupabaseManager.client }
     }
 
     val userPreferencesSyncCoordinator: UserPreferencesSyncCoordinator by lazy {
         DefaultUserPreferencesSyncCoordinator(
             localRepository = userPreferencesRepository,
             cloudRepository = userPreferencesCloudRepository,
-            supabase = SupabaseManager.client
+            getCurrentUserId = { SupabaseManager.currentUserIdOrNull() },
+            signOutAuth = { SupabaseManager.signOut() }
         )
     }
 

@@ -1,6 +1,7 @@
 package com.smartreminder.data.repository.collaboration
 
 import com.smartreminder.data.remote.collaboration.CollaborationMutationEnvelopeRemoteDto
+import com.smartreminder.data.remote.collaboration.CollaborationMappingException
 import com.smartreminder.data.remote.collaboration.CollaborationRemoteDataSource
 import com.smartreminder.data.remote.collaboration.CollaborationRemoteMapper
 import com.smartreminder.domain.model.collaboration.CollaborationGroup
@@ -29,6 +30,7 @@ import com.smartreminder.domain.repository.UpdateGroupCommand
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -70,7 +72,7 @@ class DefaultCollaborationRepository(
         CollaborationMutationResult.Applied
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (failure: Throwable) {
+    } catch (failure: Exception) {
         networkFailure(failure)
     }
 
@@ -89,7 +91,7 @@ class DefaultCollaborationRepository(
         }
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (failure: Throwable) {
+    } catch (failure: Exception) {
         networkFailure(failure)
     }
 
@@ -99,7 +101,7 @@ class DefaultCollaborationRepository(
         CollaborationMutationResult.Applied
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (failure: Throwable) {
+    } catch (failure: Exception) {
         networkFailure(failure)
     }
 
@@ -148,19 +150,28 @@ class DefaultCollaborationRepository(
     override suspend fun transferOwnership(command: TransferOwnershipCommand): CollaborationMutationResult =
         executeMutation(
             action = { remote.transferOwnership(command) },
-            afterApplied = { refreshGroupAndList(command.groupId) }
+            afterApplied = {
+                refreshGroupAndList(command.groupId)
+                refreshInvites()
+            }
         )
 
     override suspend fun leaveGroup(groupId: CollaborationGroupId): CollaborationMutationResult =
         executeMutation(
             action = { remote.leaveGroup(LeaveGroupCommand(groupId)) },
-            afterApplied = { refreshGroups() }
+            afterApplied = {
+                refreshGroups()
+                refreshInvites()
+            }
         )
 
     override suspend fun deleteGroup(groupId: CollaborationGroupId): CollaborationMutationResult =
         executeMutation(
             action = { remote.deleteGroup(DeleteGroupCommand(groupId)) },
-            afterApplied = { refreshGroups() }
+            afterApplied = {
+                refreshGroups()
+                refreshInvites()
+            }
         )
 
     override suspend fun createTask(command: com.smartreminder.domain.repository.CreateGroupTaskCommand): CollaborationMutationResult =
@@ -189,21 +200,21 @@ class DefaultCollaborationRepository(
                     afterApplied(envelope)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Throwable) {
+                } catch (_: Exception) {
                     // The RPC already applied. Keep the truthful result and retain cache rows.
                 }
             }
             result
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (failure: Throwable) {
+        } catch (failure: Exception) {
             networkFailure(failure)
         }
     }
 
     private suspend fun refreshGroupAndList(groupId: CollaborationGroupId) {
-        refreshGroup(groupId)
         refreshGroups()
+        refreshGroup(groupId)
     }
 
     private suspend fun refreshInvitesAndAffectedGroup(
@@ -218,8 +229,18 @@ class DefaultCollaborationRepository(
         }
     }
 
-    private fun networkFailure(failure: Throwable): CollaborationMutationResult =
-        CollaborationMutationResult.Failure(CollaborationError.NetworkUnavailable(failure))
+    private fun networkFailure(failure: Exception): CollaborationMutationResult {
+        val error = when (failure) {
+            is CollaborationMappingException,
+            is SerializationException -> CollaborationError.MappingFailure(
+                message = failure.message ?: "Invalid collaboration response",
+                cause = failure
+            )
+
+            else -> CollaborationError.NetworkUnavailable(failure)
+        }
+        return CollaborationMutationResult.Failure(error)
+    }
 
     private fun unsupportedTaskMutation(): Nothing =
         throw UnsupportedOperationException("Group task mutations are scheduled for G3")

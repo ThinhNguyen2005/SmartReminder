@@ -21,6 +21,7 @@ import com.smartreminder.domain.repository.CollaborationMutationEnvelope
 import com.smartreminder.domain.repository.CollaborationMutationResult
 import com.smartreminder.domain.repository.CollaborationMutationStatus
 import java.time.Instant
+import java.time.format.DateTimeParseException
 import java.util.Locale
 
 object CollaborationRemoteMapper {
@@ -31,8 +32,8 @@ object CollaborationRemoteMapper {
             name = dto.name,
             description = dto.description,
             createdBy = UserId(dto.createdBy),
-            createdAt = Instant.parse(dto.createdAt),
-            updatedAt = Instant.parse(dto.updatedAt)
+            createdAt = parseInstant(dto.createdAt, "created_at"),
+            updatedAt = parseInstant(dto.updatedAt, "updated_at")
         )
 
     fun toCache(dto: CollaborationGroupRemoteDto): CachedCollaborationGroupEntity =
@@ -41,8 +42,8 @@ object CollaborationRemoteMapper {
             name = dto.name,
             description = dto.description,
             createdBy = dto.createdBy,
-            createdAt = Instant.parse(dto.createdAt).toEpochMilli(),
-            updatedAt = Instant.parse(dto.updatedAt).toEpochMilli()
+            createdAt = parseInstant(dto.createdAt, "created_at").toEpochMilli(),
+            updatedAt = parseInstant(dto.updatedAt, "updated_at").toEpochMilli()
         )
 
     fun toDomain(dto: CollaborationMemberRemoteDto): GroupMember =
@@ -50,7 +51,9 @@ object CollaborationRemoteMapper {
             groupId = CollaborationGroupId(dto.groupId),
             userId = UserId(dto.userId),
             role = parseRole(dto.role),
-            joinedAt = Instant.parse(dto.joinedAt)
+            joinedAt = parseInstant(dto.joinedAt, "joined_at"),
+            displayName = dto.profile?.displayName,
+            avatarUrl = dto.profile?.avatarUrl
         )
 
     fun toCache(dto: CollaborationMemberRemoteDto): CachedGroupMemberEntity =
@@ -58,7 +61,7 @@ object CollaborationRemoteMapper {
             groupId = dto.groupId,
             userId = dto.userId,
             role = parseRole(dto.role).name,
-            joinedAt = Instant.parse(dto.joinedAt).toEpochMilli(),
+            joinedAt = parseInstant(dto.joinedAt, "joined_at").toEpochMilli(),
             displayName = dto.profile?.displayName,
             avatarUrl = dto.profile?.avatarUrl
         )
@@ -70,8 +73,8 @@ object CollaborationRemoteMapper {
             inviterId = UserId(dto.inviterId),
             inviteeUserId = UserId(dto.inviteeUserId),
             status = parseInviteStatus(dto.status),
-            createdAt = Instant.parse(dto.createdAt),
-            respondedAt = dto.respondedAt?.let(Instant::parse)
+            createdAt = parseInstant(dto.createdAt, "created_at"),
+            respondedAt = dto.respondedAt?.let { parseInstant(it, "responded_at") }
         )
 
     fun toCache(dto: CollaborationInviteRemoteDto): CachedGroupInviteEntity =
@@ -81,8 +84,8 @@ object CollaborationRemoteMapper {
             inviterId = dto.inviterId,
             inviteeUserId = dto.inviteeUserId,
             status = parseInviteStatus(dto.status).name,
-            createdAt = Instant.parse(dto.createdAt).toEpochMilli(),
-            respondedAt = dto.respondedAt?.let(Instant::parse)?.toEpochMilli()
+            createdAt = parseInstant(dto.createdAt, "created_at").toEpochMilli(),
+            respondedAt = dto.respondedAt?.let { parseInstant(it, "responded_at") }?.toEpochMilli()
         )
 
     fun fromCache(entity: CachedCollaborationGroupEntity): CollaborationGroup =
@@ -100,7 +103,9 @@ object CollaborationRemoteMapper {
             groupId = CollaborationGroupId(entity.groupId),
             userId = UserId(entity.userId),
             role = parseRole(entity.role),
-            joinedAt = Instant.ofEpochMilli(entity.joinedAt)
+            joinedAt = Instant.ofEpochMilli(entity.joinedAt),
+            displayName = entity.displayName,
+            avatarUrl = entity.avatarUrl
         )
 
     fun fromCache(entity: CachedGroupInviteEntity): GroupInvite =
@@ -154,14 +159,14 @@ object CollaborationRemoteMapper {
         "OWNER" -> GroupRole.OWNER
         "ADMIN" -> GroupRole.ADMIN
         "MEMBER" -> GroupRole.MEMBER
-        else -> error("Unknown collaboration member role: $raw")
+        else -> throw CollaborationMappingException("Unknown collaboration member role: $raw")
     }
 
     private fun parseInviteStatus(raw: String): GroupInviteStatus = when (raw.uppercase(Locale.ROOT)) {
         "PENDING" -> GroupInviteStatus.PENDING
         "ACCEPTED" -> GroupInviteStatus.ACCEPTED
         "DECLINED" -> GroupInviteStatus.DECLINED
-        else -> error("Unknown collaboration invite status: $raw")
+        else -> throw CollaborationMappingException("Unknown collaboration invite status: $raw")
     }
 
     private fun parseTaskStatus(raw: String): GroupTaskStatus = when (raw.uppercase(Locale.ROOT)) {
@@ -169,7 +174,7 @@ object CollaborationRemoteMapper {
         "IN_PROGRESS" -> GroupTaskStatus.IN_PROGRESS
         "COMPLETED" -> GroupTaskStatus.COMPLETED
         "CANCELLED" -> GroupTaskStatus.CANCELLED
-        else -> error("Unknown collaboration task status: $raw")
+        else -> throw CollaborationMappingException("Unknown collaboration task status: $raw")
     }
 
     private fun parseMutationStatus(raw: String): CollaborationMutationStatus = when (raw.uppercase(Locale.ROOT)) {
@@ -182,7 +187,7 @@ object CollaborationRemoteMapper {
         "ALREADY_MEMBER" -> CollaborationMutationStatus.ALREADY_MEMBER
         "INVITE_ALREADY_PENDING" -> CollaborationMutationStatus.INVITE_ALREADY_PENDING
         "INVALID_STATE" -> CollaborationMutationStatus.INVALID_STATE
-        else -> CollaborationMutationStatus.FAILURE
+        else -> throw CollaborationMappingException("Unknown collaboration mutation status: $raw")
     }
 
     private fun parseErrorCode(raw: String): CollaborationErrorCode = when (raw.uppercase(Locale.ROOT)) {
@@ -197,5 +202,11 @@ object CollaborationRemoteMapper {
         "ALREADY_MEMBER" -> CollaborationErrorCode.ALREADY_MEMBER
         "SYNC_REJECTED" -> CollaborationErrorCode.SYNC_REJECTED
         else -> CollaborationErrorCode.UNKNOWN
+    }
+
+    private fun parseInstant(raw: String, field: String): Instant = try {
+        Instant.parse(raw)
+    } catch (failure: DateTimeParseException) {
+        throw CollaborationMappingException("Invalid collaboration $field timestamp: $raw", failure)
     }
 }

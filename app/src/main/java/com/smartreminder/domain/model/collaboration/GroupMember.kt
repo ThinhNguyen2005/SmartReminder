@@ -8,5 +8,7 @@ data class GroupMember(
     val groupId: CollaborationGroupId,
     val userId: UserId,
     val role: GroupRole,
-    val joinedAt: Instant
+    val joinedAt: Instant,
+    val displayName: String? = null,
+    val avatarUrl: String? = null
 )

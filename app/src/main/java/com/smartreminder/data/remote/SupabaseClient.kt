@@ -2,6 +2,7 @@ package com.smartreminder.data.remote
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 
@@ -27,5 +28,21 @@ object SupabaseManager {
             install(Auth)
             install(Postgrest)
         }
+    }
+
+    /** Returns null only when the G2 Supabase configuration is absent. */
+    fun clientOrNull(): SupabaseClient? = try {
+        client
+    } catch (_: MissingSupabaseConfigurationException) {
+        null
+    }
+
+    fun currentUserIdOrNull(): String? = clientOrNull()
+        ?.auth
+        ?.currentUserOrNull()
+        ?.id
+
+    suspend fun signOut() {
+        client.auth.signOut()
     }
 }
