@@ -46,11 +46,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -247,6 +249,10 @@ class GroupsViewModelTest {
         repository.refreshGroupCompletions[groupB] = completionB
         val viewModel = GroupsViewModel(repository)
         advanceUntilIdle()
+        val effects = mutableListOf<GroupsEffect>()
+        val effectsJob = launch {
+            viewModel.effects.collect { effects += it }
+        }
 
         viewModel.onAction(GroupsAction.OpenGroup(groupA))
         advanceUntilIdle()
@@ -264,6 +270,8 @@ class GroupsViewModelTest {
         completionB.complete(CollaborationMutationResult.Applied)
         advanceUntilIdle()
         assertEquals(groupB, viewModel.uiState.value.selectedGroupId)
+        effectsJob.cancel()
+        assertNoMutationOutcomeEffects(effects)
     }
 
     @Test
@@ -441,12 +449,18 @@ class GroupsViewModelTest {
         repository.cancelCreateGroup = true
         val viewModel = GroupsViewModel(repository)
         advanceUntilIdle()
+        val effects = mutableListOf<GroupsEffect>()
+        val effectsJob = launch {
+            viewModel.effects.collect { effects += it }
+        }
 
         viewModel.onAction(GroupsAction.CreateGroup("Cancelled"))
         advanceUntilIdle()
 
         assertNull(viewModel.uiState.value.pendingMutation)
         assertNull(viewModel.uiState.value.error)
+        effectsJob.cancel()
+        assertNoMutationOutcomeEffects(effects)
     }
 
     @Test
@@ -555,12 +569,40 @@ class GroupsViewModelTest {
         )
         val viewModel = GroupsViewModel(repository)
         advanceUntilIdle()
+        val effects = mutableListOf<GroupsEffect>()
+        val effectsJob = launch {
+            viewModel.effects.collect { effects += it }
+        }
 
         viewModel.onAction(GroupsAction.CreateGroup("Invalid"))
         advanceUntilIdle()
 
         assertEquals(GroupsUiError.InvalidState("stale version"), viewModel.uiState.value.error)
         assertNull(viewModel.uiState.value.pendingMutation)
+        effectsJob.cancel()
+        assertNoMutationOutcomeEffects(effects)
+    }
+
+    @Test
+    fun `when mutation returns generic failure, then typed unknown state has no completion or navigation effect`() = runTest {
+        val cause = IllegalStateException("server failed")
+        repository.createGroupResult = CollaborationMutationResult.Failure(
+            CollaborationError.Unknown(cause)
+        )
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        val effects = mutableListOf<GroupsEffect>()
+        val effectsJob = launch {
+            viewModel.effects.collect { effects += it }
+        }
+
+        viewModel.onAction(GroupsAction.CreateGroup("Failed"))
+        advanceUntilIdle()
+
+        assertEquals(GroupsUiError.Unknown(cause), viewModel.uiState.value.error)
+        assertNull(viewModel.uiState.value.pendingMutation)
+        effectsJob.cancel()
+        assertNoMutationOutcomeEffects(effects)
     }
 
     @Test
@@ -617,6 +659,10 @@ class GroupsViewModelTest {
         advanceUntilIdle()
         viewModel.onAction(GroupsAction.CreateGroup("Pending"))
         advanceUntilIdle()
+        val effects = mutableListOf<GroupsEffect>()
+        val effectsJob = launch {
+            viewModel.effects.collect { effects += it }
+        }
 
         owner.viewModelStore.clear()
         advanceUntilIdle()
@@ -626,6 +672,8 @@ class GroupsViewModelTest {
         assertTrue(repository.createGroupCancelled)
         assertNull(viewModel.uiState.value.pendingMutation)
         assertNull(viewModel.uiState.value.error)
+        effectsJob.cancel()
+        assertNoMutationOutcomeEffects(effects)
     }
 
     @Test
@@ -748,6 +796,14 @@ class GroupsViewModelFactoryTest {
 }
 
 private class UnsupportedViewModel : androidx.lifecycle.ViewModel()
+
+private fun assertNoMutationOutcomeEffects(effects: List<GroupsEffect>) {
+    assertTrue(effects.none { effect ->
+        effect is GroupsEffect.MutationCompleted ||
+            effect == GroupsEffect.NavigateToList ||
+            effect is GroupsEffect.NavigateToDetail
+    })
+}
 
 private class TestViewModelStoreOwner : ViewModelStoreOwner {
     override val viewModelStore: ViewModelStore = ViewModelStore()

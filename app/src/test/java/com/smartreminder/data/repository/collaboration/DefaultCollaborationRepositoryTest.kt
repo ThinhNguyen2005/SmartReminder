@@ -189,6 +189,34 @@ class DefaultCollaborationRepositoryTest {
     }
 
     @Test
+    fun `created mutation survives post-create refresh failure and retains the previous cache`() = runTest {
+        val cache = FakeCollaborationCache(
+            groups = listOf(cachedGroup("cached", "Keep cached group"))
+        )
+        val remote = FakeCollaborationRemoteDataSource().apply {
+            createGroupEnvelope = CollaborationMutationEnvelopeRemoteDto(
+                status = "APPLIED",
+                data = kotlinx.serialization.json.buildJsonObject {
+                    put("group_id", "created-group")
+                }
+            )
+            groupsFailure = IllegalStateException("refresh unavailable")
+        }
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        assertEquals(
+            CollaborationMutationResult.Created(CollaborationGroupId("created-group")),
+            repository.createGroup(CreateGroupCommand("Created"))
+        )
+        assertEquals(1, remote.fetchGroupsCalls)
+        assertEquals(0, cache.replaceGroupsCalls)
+        assertEquals(
+            listOf("Keep cached group"),
+            repository.observeGroups().first().map { it.name }
+        )
+    }
+
+    @Test
     fun `applied invite refreshes invites and affected group`() = runTest {
         val remote = FakeCollaborationRemoteDataSource()
         val repository = DefaultCollaborationRepository(
