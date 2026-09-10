@@ -88,6 +88,33 @@ class CollaborationMembershipContractTest {
     }
 
     @Test
+    fun `invite email rejects malformed local dot placement`() {
+        listOf(
+            "lan..team@example.com",
+            ".lan@example.com",
+            "lan.@example.com"
+        ).forEach { raw ->
+            try {
+                InviteEmail(raw)
+                fail("Expected malformed local part to be rejected: '$raw'")
+            } catch (_: IllegalArgumentException) {
+                // Expected.
+            }
+        }
+    }
+
+    @Test
+    fun `invite email accepts valid dotted local part table`() {
+        listOf(
+            "lan.team@example.com",
+            "first.last+cue@sub.example.co.uk",
+            "a_b.c-d@smart-reminder.vn"
+        ).forEach { raw ->
+            InviteEmail(raw)
+        }
+    }
+
+    @Test
     fun `membership commands do not expose actor or caller selected create or invite role`() {
         val createFields = CreateGroupCommand::class.java.declaredFields.map { it.name }.toSet()
         val inviteFields = InviteMemberCommand::class.java.declaredFields.map { it.name }.toSet()
