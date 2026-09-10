@@ -128,35 +128,6 @@ begin
 end
 $$;
 
--- A member cannot promote itself or transfer ownership.
-with self_role_change as (
-    select public.change_group_member_role(
-        :'smoke_group_id'::uuid,
-        :'user_b'::uuid,
-        'ADMIN'
-    ) as envelope
-), self_transfer as (
-    select public.transfer_group_ownership(
-        :'smoke_group_id'::uuid,
-        :'user_b'::uuid
-    ) as envelope
-)
-select
-    (select envelope ->> 'status' from self_role_change) as self_role_status,
-    (select envelope ->> 'status' from self_transfer) as self_transfer_status
-\gset smoke_
-
-do $$
-begin
-    if :'smoke_self_role_status' <> 'NOT_AUTHORIZED' then
-        raise exception 'member self role change was not rejected';
-    end if;
-    if :'smoke_self_transfer_status' <> 'NOT_AUTHORIZED' then
-        raise exception 'member self ownership transfer was not rejected';
-    end if;
-end
-$$;
-
 -- Accepting is atomic: the invite is closed and membership is created.
 with accepted as (
     select public.respond_group_invite(
@@ -197,17 +168,95 @@ begin
 end
 $$;
 
--- Authenticated clients have no direct collaboration-table write grants.
+-- B is now an accepted MEMBER: it still cannot promote itself or transfer
+-- ownership. These checks deliberately run after acceptance.
+with self_role_change as (
+    select public.change_group_member_role(
+        :'smoke_group_id'::uuid,
+        :'user_b'::uuid,
+        'ADMIN'
+    ) as envelope
+), self_transfer as (
+    select public.transfer_group_ownership(
+        :'smoke_group_id'::uuid,
+        :'user_b'::uuid
+    ) as envelope
+)
+select
+    (select envelope ->> 'status' from self_role_change) as self_role_status,
+    (select envelope ->> 'status' from self_transfer) as self_transfer_status
+\gset smoke_
+
 do $$
 begin
-    begin
-        insert into public.group_members (group_id, user_id, role)
-        values (:'smoke_group_id'::uuid, :'user_b'::uuid, 'ADMIN');
-        raise exception 'direct group_members insert unexpectedly succeeded';
-    exception
-        when insufficient_privilege then
-            null;
-    end;
+    if :'smoke_self_role_status' <> 'NOT_AUTHORIZED' then
+        raise exception 'accepted member self role change was not rejected';
+    end if;
+    if :'smoke_self_transfer_status' <> 'NOT_AUTHORIZED' then
+        raise exception 'accepted member self ownership transfer was not rejected';
+    end if;
+end
+$$;
+
+-- Authenticated clients have no direct collaboration-table write grants.
+do $$
+declare
+    v_table text;
+    v_update_column text;
+    v_tables text[] := array[
+        'collaboration_groups',
+        'group_members',
+        'group_invites',
+        'group_tasks',
+        'group_task_reminders',
+        'group_reminders'
+    ];
+begin
+    foreach v_table in array v_tables loop
+        if has_table_privilege(current_user, format('public.%s', v_table), 'INSERT')
+           or has_table_privilege(current_user, format('public.%s', v_table), 'UPDATE')
+           or has_table_privilege(current_user, format('public.%s', v_table), 'DELETE') then
+            raise exception 'authenticated has a direct write grant on %', v_table;
+        end if;
+
+        v_update_column := case v_table
+            when 'collaboration_groups' then 'updated_at'
+            when 'group_members' then 'role'
+            when 'group_invites' then 'status'
+            when 'group_tasks' then 'title'
+            when 'group_task_reminders' then 'offset_seconds'
+            when 'group_reminders' then 'title'
+        end;
+
+        begin
+            execute format('insert into public.%I default values', v_table);
+            raise exception 'direct INSERT unexpectedly succeeded on %', v_table;
+        exception
+            when insufficient_privilege then
+                null;
+        end;
+
+        begin
+            execute format(
+                'update public.%I set %I = %I where false',
+                v_table,
+                v_update_column,
+                v_update_column
+            );
+            raise exception 'direct UPDATE unexpectedly succeeded on %', v_table;
+        exception
+            when insufficient_privilege then
+                null;
+        end;
+
+        begin
+            execute format('delete from public.%I where false', v_table);
+            raise exception 'direct DELETE unexpectedly succeeded on %', v_table;
+        exception
+            when insufficient_privilege then
+                null;
+        end;
+    end loop;
 end
 $$;
 
@@ -304,6 +353,33 @@ from public.group_members
 where group_id = :'smoke_group_id'::uuid
 \gset smoke_
 
+select count(*) as deleted_invite_rows
+from public.group_invites
+where group_id = :'smoke_group_id'::uuid
+\gset smoke_
+
+select count(*) as deleted_task_rows
+from public.group_tasks
+where group_id = :'smoke_group_id'::uuid
+\gset smoke_
+
+select count(*) as deleted_task_reminder_rows
+from public.group_task_reminders as gtr
+join public.group_tasks as gt
+  on gt.id = gtr.task_id
+where gt.group_id = :'smoke_group_id'::uuid
+\gset smoke_
+
+select count(*) as deleted_reminder_rows
+from public.group_reminders
+where group_id = :'smoke_group_id'::uuid
+\gset smoke_
+
+select count(*) as deleted_profile_rows_as_b
+from public.user_profiles
+where user_id = :'user_a'::uuid
+\gset smoke_
+
 select set_config('request.jwt.claim.sub', :'user_a', false);
 
 select count(*) as deleted_group_rows_as_a
@@ -315,6 +391,11 @@ do $$
 begin
     if :'smoke_deleted_group_rows'::integer <> 0
        or :'smoke_deleted_member_rows'::integer <> 0
+       or :'smoke_deleted_invite_rows'::integer <> 0
+       or :'smoke_deleted_task_rows'::integer <> 0
+       or :'smoke_deleted_task_reminder_rows'::integer <> 0
+       or :'smoke_deleted_reminder_rows'::integer <> 0
+       or :'smoke_deleted_profile_rows_as_b'::integer <> 0
        or :'smoke_deleted_group_rows_as_a'::integer <> 0 then
         raise exception 'soft-deleted group remained in a read path';
     end if;

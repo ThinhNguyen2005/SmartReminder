@@ -93,6 +93,50 @@ EXIT=1
 
 The RPC was then changed so every OWNER leave returns `INVALID_STATE` with an explicit transfer/delete detail. The rollback smoke script now calls the sole-owner leave path and asserts `INVALID_STATE`; the structural checker is GREEN again.
 
+### Reviewer round 1 fix - smoke order and coverage
+
+The first smoke flow attempted B's unauthorized role/ownership actions while B was still only a pending invitee. The checks now run after B accepts the invite, so they exercise a real MEMBER authorization boundary.
+
+The smoke script also now:
+
+- checks authenticated INSERT/UPDATE/DELETE privileges and attempts denied DML for every G1 collaboration table (`collaboration_groups`, `group_members`, `group_invites`, `group_tasks`, `group_task_reminders`, and `group_reminders`);
+- checks post-soft-delete invisibility for every collaboration table read path plus the cross-group `user_profiles` path;
+- rolls all setup/mutation data back at the end as before.
+
+The structural checker was tightened from broad cross-file regexes to exact policy names/table targets and specific smoke aliases/table lists. Before the smoke changes it produced the expected RED failures for member-check ordering, direct-write table enumeration, and missing deleted invite/task/reminder/profile reads. After the changes:
+
+```text
+[OK] member authorization checks run after invite acceptance
+[OK] smoke direct-write denial names collaboration_groups
+[OK] smoke direct-write denial names group_members
+[OK] smoke direct-write denial names group_invites
+[OK] smoke direct-write denial names group_tasks
+[OK] smoke direct-write denial names group_task_reminders
+[OK] smoke direct-write denial names group_reminders
+[OK] smoke soft-delete read assertion names collaboration_groups
+[OK] smoke soft-delete read assertion names group_members
+[OK] smoke soft-delete read assertion names group_invites
+[OK] smoke soft-delete read assertion names group_tasks
+[OK] smoke soft-delete read assertion names group_task_reminders
+[OK] smoke soft-delete read assertion names group_reminders
+[OK] smoke soft-delete read assertion names user_profiles
+[OK] G2 structural checks passed
+```
+
+Final verification after the reviewer fix:
+
+```text
+& .\doc\supabase\tests\collaboration_groups_g2_structural.ps1
+```
+
+Result: exit code `0` (`[OK] G2 structural checks passed`). `git diff --check` also exited `0`.
+
+```text
+.\gradlew.bat test
+```
+
+Result: `BUILD SUCCESSFUL`; 26 actionable tasks were up-to-date. The first sandboxed invocation could not open the existing Gradle wrapper lock, so the same command was rerun with approved cache access and passed.
+
 ## Live smoke status and blocker
 
 `doc/supabase/tests/collaboration_groups_g2_rls_smoke.sql` is intentionally not applied. It requires a confirmed local/dev Supabase target, two existing `auth.users` UUIDs, and caller-supplied psql variables (`user_a`, `user_b`, `invitee_email`). The workspace has no `psql`/`pg_isready`, and no dev credentials/target were supplied. The existing hard-coded project configuration was not used or modified.
@@ -106,5 +150,5 @@ The RPC was then changed so every OWNER leave returns `INVALID_STATE` with an ex
 - G1 remains untouched; the migration is additive and idempotent for the existing owner index, policies, helper functions, grants, and RPC definitions.
 - No caller-supplied actor ID or caller-selected OWNER role is accepted by any command.
 - Direct authenticated collaboration writes are denied at both table-grant and RLS-policy boundaries.
-- Pending invite privacy, sole-owner leave rejection, and deleted-group filtering are checked explicitly in the smoke flow.
+- Pending invite privacy, post-accept MEMBER authorization, six-table direct-write denial, sole-owner leave rejection, and deleted-group filtering across all read paths are checked explicitly in the smoke flow.
 - Live SQL parser/database execution, concurrency reproduction, and two-account RLS execution remain unverified until a confirmed dev target is supplied; those are the only outstanding verification gaps.

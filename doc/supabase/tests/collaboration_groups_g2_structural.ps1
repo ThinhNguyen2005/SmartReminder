@@ -41,8 +41,8 @@ Require-Text "user_profiles avatar_url column" "avatar_url\s+text"
 Require-Text "user_profiles updated_at column" "updated_at\s+timestamptz"
 Require-Text "auth user backfill" "insert\s+into\s+public\.user_profiles[\s\S]+from\s+auth\.users"
 Require-Text "new account profile trigger" "create\s+trigger\s+[^;]*on\s+auth\.users"
-Require-Text "profile select RLS" "create\s+policy\s+[^;]*user_profiles[^;]*for\s+select"
-Require-Text "profile update RLS" "create\s+policy\s+[^;]*user_profiles[^;]*for\s+update"
+Require-Text "profile select RLS" "create\s+policy\s+user_profiles_select_self_or_active_group[\s\S]+on\s+public\.user_profiles[\s\S]+for\s+select[\s\S]+to\s+authenticated[\s\S]+private\.is_same_active_group_profile"
+Require-Text "profile update RLS" "create\s+policy\s+user_profiles_update_self[\s\S]+on\s+public\.user_profiles[\s\S]+for\s+update[\s\S]+using\s*\(user_id\s*=\s*\(select\s+auth\.uid\(\)\)\)[\s\S]+with\s+check\s*\(user_id\s*=\s*\(select\s+auth\.uid\(\)\)\)"
 Require-Text "same active group profile predicate" "is_same_active_group_profile"
 
 $collaborationTables = @(
@@ -53,10 +53,19 @@ $collaborationTables = @(
     "group_task_reminders",
     "group_reminders"
 )
+$collaborationPolicyPatterns = @{
+    collaboration_groups = "create\s+policy\s+collaboration_groups_select_member[\s\S]+on\s+public\.collaboration_groups[\s\S]+for\s+select[\s\S]+deleted_at\s+is\s+null"
+    group_members = "create\s+policy\s+group_members_select_member[\s\S]+on\s+public\.group_members[\s\S]+for\s+select[\s\S]+private\.is_active_collaboration_group\(group_id\)"
+    group_invites = "create\s+policy\s+group_invites_select_recipient_or_manager[\s\S]+on\s+public\.group_invites[\s\S]+for\s+select[\s\S]+private\.is_active_collaboration_group\(group_id\)"
+    group_tasks = "create\s+policy\s+group_tasks_select_member[\s\S]+on\s+public\.group_tasks[\s\S]+for\s+select[\s\S]+private\.is_active_collaboration_group\(group_id\)"
+    group_task_reminders = "create\s+policy\s+group_task_reminders_select_member[\s\S]+on\s+public\.group_task_reminders[\s\S]+for\s+select[\s\S]+private\.is_collaboration_task_member\(task_id\)"
+    group_reminders = "create\s+policy\s+group_reminders_select_member[\s\S]+on\s+public\.group_reminders[\s\S]+for\s+select[\s\S]+private\.is_active_collaboration_group\(group_id\)"
+}
 foreach ($table in $collaborationTables) {
     Require-Text "RLS enabled on $table" "alter\s+table\s+public\.$table\s+enable\s+row\s+level\s+security"
-    Require-Text "authenticated write revoke on $table" "revoke\s+(?:all|insert[\s,]+update[\s,]+delete)[^;]*on\s+table\s+public\.$table"
-    Require-Text "soft-delete-aware read path for $table" "public\.collaboration_groups[\s\S]+deleted_at\s+is\s+null"
+    Require-Text "public write revoke on $table" "revoke\s+all\s+on\s+table\s+public\.$table\s+from\s+public\s*;"
+    Require-Text "authenticated write revoke on $table" "revoke\s+all\s+on\s+table\s+public\.$table\s+from\s+anon,\s+authenticated\s*;"
+    Require-Text "specific active read policy for $table" $collaborationPolicyPatterns[$table]
 }
 
 Require-Text "active group member helper" "is_collaboration_group_member[\s\S]+collaboration_groups[\s\S]+deleted_at\s+is\s+null"
@@ -130,12 +139,48 @@ $allPassed = (Test-Required "repeatable RLS smoke script exists" $smokeExists) -
 if ($smokeExists) {
     $smokeSql = Get-Content -LiteralPath $smokePath -Raw
     $smokeLower = $smokeSql.ToLowerInvariant()
+    $acceptIndex = $smokeLower.IndexOf("as accept_status")
+    $memberAuthorizationIndex = $smokeLower.IndexOf("as self_role_status")
+    $memberAuthorizationAfterAccept = $acceptIndex -ge 0 -and $memberAuthorizationIndex -gt $acceptIndex
+    $allPassed = (Test-Required "member authorization checks run after invite acceptance" $memberAuthorizationAfterAccept) -and $allPassed
+
+    $writeTableArrayMatch = [regex]::Match(
+        $smokeLower,
+        "(?is)v_tables\s+text\[\]\s*:=\s*array\s*\[(?<items>.*?)\]\s*;"
+    )
+    $hasWriteTableArray = $writeTableArrayMatch.Success
+    $allPassed = (Test-Required "smoke script enumerates direct-write tables" $hasWriteTableArray) -and $allPassed
+    if ($hasWriteTableArray) {
+        $writeTableItems = $writeTableArrayMatch.Groups["items"].Value
+        foreach ($table in $collaborationTables) {
+            $tablePattern = "'" + [regex]::Escape($table) + "'"
+            $allPassed = (Test-Required "smoke direct-write denial names $table" ($writeTableItems -match $tablePattern)) -and $allPassed
+        }
+    }
+
+    $deletedReadPatterns = @{
+        collaboration_groups = "select\s+count\(\*\)\s+as\s+deleted_group_rows[\s\S]+from\s+public\.collaboration_groups"
+        group_members = "select\s+count\(\*\)\s+as\s+deleted_member_rows[\s\S]+from\s+public\.group_members"
+        group_invites = "select\s+count\(\*\)\s+as\s+deleted_invite_rows[\s\S]+from\s+public\.group_invites"
+        group_tasks = "select\s+count\(\*\)\s+as\s+deleted_task_rows[\s\S]+from\s+public\.group_tasks"
+        group_task_reminders = "select\s+count\(\*\)\s+as\s+deleted_task_reminder_rows[\s\S]+from\s+public\.group_task_reminders"
+        group_reminders = "select\s+count\(\*\)\s+as\s+deleted_reminder_rows[\s\S]+from\s+public\.group_reminders"
+        user_profiles = "select\s+count\(\*\)\s+as\s+deleted_profile_rows_as_b[\s\S]+from\s+public\.user_profiles"
+    }
+    $deleteIndex = $smokeLower.IndexOf("as delete_status")
+    $allPassed = (Test-Required "smoke script has a soft-delete checkpoint" ($deleteIndex -ge 0)) -and $allPassed
+    foreach ($readTable in $deletedReadPatterns.Keys) {
+        $readMatch = [regex]::Match($smokeLower, $deletedReadPatterns[$readTable])
+        $readAfterDelete = $readMatch.Success -and $readMatch.Index -gt $deleteIndex
+        $allPassed = (Test-Required "smoke soft-delete read assertion names $readTable" $readAfterDelete) -and $allPassed
+    }
+
     $smokeChecks = @(
         [pscustomobject]@{ Label = "smoke script stops on SQL errors"; Passed = ($smokeLower -match "\\set\s+on_error_stop\s+on") },
         [pscustomobject]@{ Label = "smoke script uses authenticated role"; Passed = ($smokeLower -match "set\s+role\s+authenticated") },
         [pscustomobject]@{ Label = "smoke script switches JWT actor"; Passed = ($smokeLower -match "request\.jwt\.claim\.sub") },
         [pscustomobject]@{ Label = "smoke script covers both actors"; Passed = (($smokeLower -match "user_a") -and ($smokeLower -match "user_b")) },
-        [pscustomobject]@{ Label = "smoke script checks direct write denial"; Passed = ($smokeLower -match "insert\s+into\s+public\.group_members[\s\S]+insufficient_privilege") },
+        [pscustomobject]@{ Label = "smoke script checks direct write denial"; Passed = (($smokeLower -match "has_table_privilege") -and ($smokeLower -match "execute\s+format\('insert\s+into\s+public\.%i") -and ($smokeLower -match "insufficient_privilege")) },
         [pscustomobject]@{ Label = "smoke script rolls back data"; Passed = ($smokeLower -match "rollback\s*;") },
         [pscustomobject]@{ Label = "smoke script covers ownership transfer"; Passed = ($smokeLower -match "transfer_group_ownership") },
         [pscustomobject]@{ Label = "smoke script rejects sole owner leave"; Passed = ($smokeLower -match "sole_owner_leave_status[\s\S]+invalid_state") }
