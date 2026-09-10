@@ -10,8 +10,10 @@
     <string name="action_back">Quay lại</string>
 
     <string name="nav_today">Hôm nay</string>
+    <string name="nav_calendar">Lịch</string>
     <string name="nav_schedules">Lịch trình</string>
     <string name="nav_tasks">Công việc</string>
+    <string name="nav_groups">Nhóm</string>
     <string name="nav_profile">Cá nhân</string>
     <string name="placeholder_coming_soon">Sắp ra mắt</string>
 

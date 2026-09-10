@@ -10,8 +10,10 @@
     <string name="action_back">Back</string>
 
     <string name="nav_today">Today</string>
+    <string name="nav_calendar">Calendar</string>
     <string name="nav_schedules">Schedules</string>
     <string name="nav_tasks">Tasks</string>
+    <string name="nav_groups">Groups</string>
     <string name="nav_profile">Profile</string>
     <string name="placeholder_coming_soon">Coming soon</string>
 

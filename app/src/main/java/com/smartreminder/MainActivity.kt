@@ -11,8 +11,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
@@ -50,7 +51,8 @@ import com.smartreminder.ui.schedules.SchedulesRoute
 import com.smartreminder.ui.schedules.SchedulesViewModel
 import com.smartreminder.ui.schedules.SchedulesViewModelFactory
 import com.smartreminder.ui.schedules.editor.UuidRoutineEditorIdGenerator
-import com.smartreminder.ui.tasks.TasksPlaceholderScreen
+import com.smartreminder.ui.calendar.CalendarPlaceholderScreen
+import com.smartreminder.ui.groups.GroupsPlaceholderScreen
 import com.smartreminder.ui.theme.SmartReminderTheme
 import com.smartreminder.ui.today.TodayPlaceholderScreen
 import java.time.Clock
@@ -177,6 +179,9 @@ fun SmartReminderApp(
                     AppDestination.TODAY -> TodayPlaceholderScreen(
                         modifier = Modifier.padding(innerPadding)
                     )
+                    AppDestination.CALENDAR -> CalendarPlaceholderScreen(
+                        modifier = Modifier.padding(innerPadding)
+                    )
                     AppDestination.SCHEDULES -> {
                         if (appContainer != null) {
                             SchedulesHost(
@@ -198,7 +203,7 @@ fun SmartReminderApp(
                             )
                         }
                     }
-                    AppDestination.TASKS -> TasksPlaceholderScreen(
+                    AppDestination.GROUPS -> GroupsPlaceholderScreen(
                         modifier = Modifier.padding(innerPadding)
                     )
                     AppDestination.PROFILE -> {
@@ -239,7 +244,8 @@ enum class AppDestination(
     val icon: ImageVector,
 ) {
     TODAY(R.string.nav_today, Icons.Default.Home),
+    CALENDAR(R.string.nav_calendar, Icons.Default.CalendarMonth),
     SCHEDULES(R.string.nav_schedules, Icons.Default.DateRange),
-    TASKS(R.string.nav_tasks, Icons.Default.CheckCircle),
+    GROUPS(R.string.nav_groups, Icons.Default.Groups),
     PROFILE(R.string.nav_profile, Icons.Default.Person),
 }
