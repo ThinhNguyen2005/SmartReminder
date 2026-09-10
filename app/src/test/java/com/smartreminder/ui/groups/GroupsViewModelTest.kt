@@ -1,6 +1,7 @@
 package com.smartreminder.ui.groups
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewmodel.CreationExtras
 import com.smartreminder.domain.model.collaboration.CollaborationGroup
 import com.smartreminder.domain.model.collaboration.GroupInvite
 import com.smartreminder.domain.model.collaboration.GroupInviteStatus
@@ -33,6 +34,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -61,7 +64,10 @@ class GroupsViewModelTest {
         repository = FakeCollaborationRepository(
             groups = listOf(group("group-1", "Household")),
             invites = listOf(invite("invite-1", "group-1")),
-            members = listOf(member("group-1", "owner-1", GroupRole.OWNER))
+            members = listOf(
+                member("group-1", "owner-1", GroupRole.OWNER),
+                member("group-1", "member-1", GroupRole.MEMBER)
+            )
         )
     }
 
@@ -96,7 +102,10 @@ class GroupsViewModelTest {
 
         assertEquals(GroupsScreen.DETAIL, viewModel.uiState.value.screen)
         assertEquals(CollaborationGroupId("group-1"), viewModel.uiState.value.selectedGroupId)
-        assertEquals("owner-1", viewModel.uiState.value.selectedGroup?.members?.single()?.userId?.value)
+        assertTrue(
+            viewModel.uiState.value.selectedGroup?.members
+                ?.any { it.userId == UserId("owner-1") } == true
+        )
     }
 
     @Test
@@ -164,6 +173,221 @@ class GroupsViewModelTest {
     }
 
     @Test
+    fun `when create returns typed group id, then created group is selected and detail navigation is emitted`() = runTest {
+        val createdId = CollaborationGroupId("created-group")
+        repository.groups = listOf(group("group-1", "Household"), group("created-group", "Created"))
+        repository.createGroupResult = CollaborationMutationResult.Created(createdId)
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.CreateGroup("Created"))
+        advanceUntilIdle()
+
+        assertEquals(createdId, viewModel.uiState.value.selectedGroupId)
+        assertEquals(GroupsScreen.DETAIL, viewModel.uiState.value.screen)
+        assertEquals(
+            GroupsEffect.NavigateToDetail(createdId),
+            viewModel.effects.filter { it is GroupsEffect.NavigateToDetail }.first()
+        )
+    }
+
+    @Test
+    fun `when detail refresh for group A finishes after group B opens, then stale failure is ignored`() = runTest {
+        val groupA = CollaborationGroupId("group-a")
+        val groupB = CollaborationGroupId("group-b")
+        repository.groups = listOf(group("group-a", "A"), group("group-b", "B"))
+        val completionA = CompletableDeferred<CollaborationMutationResult>()
+        val completionB = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[groupA] = completionA
+        repository.refreshGroupCompletions[groupB] = completionB
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.OpenGroup(groupA))
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(groupB))
+        advanceUntilIdle()
+
+        completionA.complete(
+            CollaborationMutationResult.Conflict(CollaborationError.Conflict("stale A"))
+        )
+        advanceUntilIdle()
+
+        assertEquals(groupB, viewModel.uiState.value.selectedGroupId)
+        assertNull(viewModel.uiState.value.error)
+
+        completionB.complete(CollaborationMutationResult.Applied)
+        advanceUntilIdle()
+        assertEquals(groupB, viewModel.uiState.value.selectedGroupId)
+    }
+
+    @Test
+    fun `when refresh is already running, then repeated refresh does not issue a duplicate`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupsCompletion = completion
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.Refresh)
+        advanceUntilIdle()
+
+        assertEquals(1, repository.refreshGroupsCalls)
+        completion.complete(CollaborationMutationResult.Applied)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `when mutation is pending, then Back and OpenGroup are ignored`() = runTest {
+        val otherGroup = group("group-2", "Other")
+        repository.groups = listOf(group("group-1", "Household"), otherGroup)
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.createGroupCompletion = completion
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.CreateGroup("Pending"))
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.Back)
+        viewModel.onAction(GroupsAction.OpenGroup(otherGroup.id))
+
+        assertEquals(CollaborationGroupId("group-1"), viewModel.uiState.value.selectedGroupId)
+        assertNotNull(viewModel.uiState.value.pendingMutation)
+
+        completion.complete(CollaborationMutationResult.Conflict(CollaborationError.Conflict("conflict")))
+        advanceUntilIdle()
+        assertEquals(CollaborationGroupId("group-1"), viewModel.uiState.value.selectedGroupId)
+        assertEquals(GroupsUiError.Conflict("conflict"), viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun `when mutation is already running, then duplicate mutation action is ignored`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.createGroupCompletion = completion
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.CreateGroup("First"))
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.CreateGroup("Second"))
+
+        assertEquals(listOf("create:First"), repository.mutationCalls)
+        completion.complete(CollaborationMutationResult.Applied)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `when mutation returns typed conflict or not authorized, then matching ui errors are exposed`() = runTest {
+        repository.createGroupResult = CollaborationMutationResult.NotAuthorized(
+            CollaborationError.NotAuthorized
+        )
+        val notAuthorizedViewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        notAuthorizedViewModel.onAction(GroupsAction.CreateGroup("Denied"))
+        advanceUntilIdle()
+        assertEquals(GroupsUiError.NotAuthorized, notAuthorizedViewModel.uiState.value.error)
+
+        val conflictRepository = FakeCollaborationRepository(
+            groups = listOf(group("group-1", "Household")),
+            members = listOf(member("group-1", "owner-1", GroupRole.OWNER))
+        ).apply {
+            createGroupResult = CollaborationMutationResult.Conflict(
+                CollaborationError.Conflict("changed remotely")
+            )
+        }
+        val conflictViewModel = GroupsViewModel(conflictRepository)
+        advanceUntilIdle()
+        conflictViewModel.onAction(GroupsAction.CreateGroup("Conflict"))
+        advanceUntilIdle()
+        assertEquals(GroupsUiError.Conflict("changed remotely"), conflictViewModel.uiState.value.error)
+    }
+
+    @Test
+    fun `when actor is admin, then target permissions and role gated dialogs reflect admin rules`() = runTest {
+        repository.currentUserId = UserId("admin-1")
+        repository.members = listOf(
+            member("group-1", "owner-1", GroupRole.OWNER),
+            member("group-1", "admin-1", GroupRole.ADMIN),
+            member("group-1", "member-1", GroupRole.MEMBER)
+        )
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+
+        val detail = viewModel.uiState.value.selectedGroup!!
+        assertEquals(UserId("admin-1"), detail.currentUserId)
+        assertEquals(GroupRole.ADMIN, detail.currentUserRole)
+        assertTrue(detail.actorPermissions!!.canEditGroup)
+        assertFalse(detail.actorPermissions.canChangeRoles)
+        assertFalse(detail.memberActionsByMemberId[UserId("owner-1")]!!.canRemove)
+        assertTrue(detail.memberActionsByMemberId[UserId("member-1")]!!.canRemove)
+
+        viewModel.onAction(GroupsAction.OpenUpdateGroupDialog)
+        assertEquals(GroupsDialog.UpdateGroup(CollaborationGroupId("group-1")), viewModel.uiState.value.dialog)
+        viewModel.onAction(GroupsAction.DismissDialog)
+        viewModel.onAction(GroupsAction.OpenChangeMemberRoleDialog(UserId("member-1")))
+        assertNull(viewModel.uiState.value.dialog)
+        assertEquals(GroupsUiError.NotAuthorized, viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun `when actor is member, then every membership dialog is denied`() = runTest {
+        repository.currentUserId = UserId("member-1")
+        repository.members = listOf(
+            member("group-1", "owner-1", GroupRole.OWNER),
+            member("group-1", "member-1", GroupRole.MEMBER)
+        )
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+
+        listOf<GroupsAction>(
+            GroupsAction.OpenUpdateGroupDialog,
+            GroupsAction.OpenInviteMemberDialog,
+            GroupsAction.OpenChangeMemberRoleDialog(UserId("owner-1")),
+            GroupsAction.OpenRemoveMemberDialog(UserId("owner-1")),
+            GroupsAction.OpenTransferOwnershipDialog(UserId("owner-1")),
+            GroupsAction.OpenDeleteGroupDialog
+        ).forEach { action ->
+            viewModel.onAction(action)
+            assertNull(viewModel.uiState.value.dialog)
+            assertEquals(GroupsUiError.NotAuthorized, viewModel.uiState.value.error)
+            viewModel.onAction(GroupsAction.DismissError)
+        }
+
+        viewModel.onAction(GroupsAction.OpenLeaveGroupDialog)
+        assertEquals(GroupsDialog.LeaveGroup, viewModel.uiState.value.dialog)
+    }
+
+    @Test
+    fun `when refresh throws, then feature exposes typed unknown error instead of crashing`() = runTest {
+        repository.groups = emptyList()
+        repository.refreshGroupsFailure = IllegalStateException("refresh failed")
+        val viewModel = GroupsViewModel(repository)
+
+        advanceUntilIdle()
+
+        assertEquals(GroupsLoadState.ERROR, viewModel.uiState.value.loadState)
+        assertTrue(viewModel.uiState.value.error is GroupsUiError.Unknown)
+    }
+
+    @Test
+    fun `when mutation returns network required, then offline error is exposed`() = runTest {
+        repository.createGroupResult = CollaborationMutationResult.NetworkRequired
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.CreateGroup("Offline"))
+        advanceUntilIdle()
+
+        assertEquals(GroupsUiError.Offline, viewModel.uiState.value.error)
+        assertTrue(viewModel.uiState.value.isOffline)
+    }
+
+    @Test
     fun `when mutation is cancelled, then pending state is cleared without a user error`() = runTest {
         repository.cancelCreateGroup = true
         val viewModel = GroupsViewModel(repository)
@@ -197,6 +421,7 @@ class GroupsViewModelTest {
         val viewModel = GroupsViewModel(repository)
         advanceUntilIdle()
         viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
 
         viewModel.onAction(GroupsAction.UpdateGroup("Renamed", "Updated"))
         advanceUntilIdle()
@@ -208,11 +433,6 @@ class GroupsViewModelTest {
         advanceUntilIdle()
         viewModel.onAction(GroupsAction.TransferOwnership(UserId("member-1")))
         advanceUntilIdle()
-        viewModel.onAction(GroupsAction.LeaveGroup)
-        advanceUntilIdle()
-        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
-        viewModel.onAction(GroupsAction.DeleteGroup)
-        advanceUntilIdle()
 
         assertEquals(
             listOf(
@@ -220,12 +440,37 @@ class GroupsViewModelTest {
                 "invite:new@example.com",
                 "role:member-1:ADMIN",
                 "remove:member-1",
-                "transfer:member-1",
-                "leave:group-1",
-                "delete:group-1"
+                "transfer:member-1"
             ),
             repository.mutationCalls
         )
+    }
+
+    @Test
+    fun `when a non-owner leaves selected group, then leave mutation delegates`() = runTest {
+        repository.currentUserId = UserId("member-1")
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.LeaveGroup)
+        advanceUntilIdle()
+
+        assertEquals(listOf("leave:group-1"), repository.mutationCalls)
+    }
+
+    @Test
+    fun `when owner deletes selected group, then delete mutation delegates`() = runTest {
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.DeleteGroup)
+        advanceUntilIdle()
+
+        assertEquals(listOf("delete:group-1"), repository.mutationCalls)
     }
 
     @Test
@@ -306,6 +551,19 @@ class GroupsViewModelFactoryTest {
         assertEquals(GroupsViewModel::class.java, factory.create(GroupsViewModel::class.java)::class.java)
     }
 
+    @Test
+    fun `when factory receives CreationExtras, then injected SavedStateHandle selection is restored`() {
+        val savedStateHandle = SavedStateHandle(
+            mapOf(GroupsViewModel.SELECTED_GROUP_ID_KEY to "group-1")
+        )
+        val viewModel = GroupsViewModelFactory(
+            FakeCollaborationRepository(groups = listOf(group("group-1", "Household"))),
+            savedStateHandle
+        ).create(GroupsViewModel::class.java, CreationExtras.Empty)
+
+        assertEquals(CollaborationGroupId("group-1"), viewModel.uiState.value.selectedGroupId)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `given unsupported model, when factory creates it, then throws`() {
         GroupsViewModelFactory(FakeCollaborationRepository()).create(UnsupportedViewModel::class.java)
@@ -317,12 +575,21 @@ private class UnsupportedViewModel : androidx.lifecycle.ViewModel()
 private class FakeCollaborationRepository(
     groups: List<CollaborationGroup> = emptyList(),
     invites: List<GroupInvite> = emptyList(),
-    members: List<GroupMember> = emptyList()
+    members: List<GroupMember> = emptyList(),
+    currentUserId: UserId? = UserId("owner-1")
 ) : CollaborationRepository {
 
     private val groupsFlow = MutableStateFlow(groups)
     private val invitesFlow = MutableStateFlow(invites)
     private val membersFlow = MutableStateFlow(members)
+
+    var currentUserId: UserId? = currentUserId
+
+    var members: List<GroupMember>
+        get() = membersFlow.value
+        set(value) {
+            membersFlow.value = value
+        }
 
     var groups: List<CollaborationGroup>
         get() = groupsFlow.value
@@ -332,8 +599,11 @@ private class FakeCollaborationRepository(
 
     var refreshGroupsResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var refreshGroupsCompletion: CompletableDeferred<CollaborationMutationResult>? = null
+    var refreshGroupsFailure: Throwable? = null
     var createGroupCompletion: CompletableDeferred<CollaborationMutationResult>? = null
+    var createGroupResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var cancelCreateGroup: Boolean = false
+    val refreshGroupCompletions = mutableMapOf<CollaborationGroupId, CompletableDeferred<CollaborationMutationResult>>()
     var refreshGroupsCalls: Int = 0
         private set
     var createGroupCommand: CreateGroupCommand? = null
@@ -353,13 +623,16 @@ private class FakeCollaborationRepository(
 
     override fun observeInvites(): Flow<List<GroupInvite>> = invitesFlow.asStateFlow()
 
+    override fun currentUserId(): UserId? = currentUserId
+
     override suspend fun refreshGroups(): CollaborationMutationResult {
         refreshGroupsCalls += 1
+        refreshGroupsFailure?.let { throw it }
         return refreshGroupsCompletion?.await() ?: refreshGroupsResult
     }
 
-    override suspend fun refreshGroup(groupId: CollaborationGroupId) =
-        CollaborationMutationResult.Applied
+    override suspend fun refreshGroup(groupId: CollaborationGroupId): CollaborationMutationResult =
+        refreshGroupCompletions[groupId]?.await() ?: CollaborationMutationResult.Applied
 
     override suspend fun refreshInvites() = CollaborationMutationResult.Applied
 
@@ -367,7 +640,7 @@ private class FakeCollaborationRepository(
         createGroupCommand = command
         mutationCalls += "create:${command.name}"
         if (cancelCreateGroup) throw CancellationException("cancelled")
-        return createGroupCompletion?.await() ?: CollaborationMutationResult.Applied
+        return createGroupCompletion?.await() ?: createGroupResult
     }
 
     override suspend fun updateGroup(command: UpdateGroupCommand): CollaborationMutationResult {

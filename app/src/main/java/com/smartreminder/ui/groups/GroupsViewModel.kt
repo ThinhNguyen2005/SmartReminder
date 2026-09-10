@@ -8,6 +8,7 @@ import com.smartreminder.domain.model.collaboration.CollaborationGroup
 import com.smartreminder.domain.model.collaboration.GroupInvite
 import com.smartreminder.domain.model.collaboration.GroupInviteStatus
 import com.smartreminder.domain.model.collaboration.GroupMember
+import com.smartreminder.domain.model.collaboration.GroupRole
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
 import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
 import com.smartreminder.domain.model.collaboration.ids.UserId
@@ -26,6 +27,7 @@ import com.smartreminder.domain.repository.TransferOwnershipCommand
 import com.smartreminder.domain.repository.UpdateGroupCommand
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +48,7 @@ class GroupsViewModel(
     private val invites = MutableStateFlow(emptyList<GroupInvite>())
     private val members = MutableStateFlow(emptyList<GroupMember>())
     private val selectedGroupId = MutableStateFlow(restoredGroupId())
+    private val currentUserId = repository.currentUserId()
     private val pendingMutation = MutableStateFlow<PendingGroupsMutation?>(null)
     private val dialog = MutableStateFlow<GroupsDialog?>(null)
     private val error = MutableStateFlow<GroupsUiError?>(null)
@@ -54,6 +57,13 @@ class GroupsViewModel(
     private val isOffline = MutableStateFlow(false)
     private val effectsChannel = Channel<GroupsEffect>(Channel.BUFFERED)
     private val _uiState = MutableStateFlow(GroupsUiState(isRefreshing = true))
+
+    private var refreshJob: Job? = null
+    private var detailRefreshJob: Job? = null
+    private var mutationJob: Job? = null
+    private var refreshGeneration = 0L
+    private var detailGeneration = 0L
+    private var mutationGeneration = 0L
 
     val uiState = _uiState.asStateFlow()
     val effects: Flow<GroupsEffect> = effectsChannel.receiveAsFlow()
@@ -66,30 +76,19 @@ class GroupsViewModel(
     }
 
     fun onAction(action: GroupsAction) {
+        if (pendingMutation.value != null && action.isBlockedDuringMutation()) return
         when (action) {
             is GroupsAction.OpenGroup -> openGroup(action.groupId)
             GroupsAction.Back -> clearSelection()
             GroupsAction.Refresh -> refresh()
             GroupsAction.OpenCreateGroupDialog -> setDialog(GroupsDialog.CreateGroup)
-            GroupsAction.OpenUpdateGroupDialog -> selectedDialog { GroupsDialog.UpdateGroup(it) }
-            GroupsAction.OpenInviteMemberDialog -> selectedDialog { GroupsDialog.InviteMember(it) }
-            is GroupsAction.OpenChangeMemberRoleDialog -> selectedDialog {
-                GroupsDialog.ChangeMemberRole(it, action.memberId)
-            }
-            is GroupsAction.OpenRemoveMemberDialog -> selectedDialog {
-                GroupsDialog.RemoveMember(it, action.memberId)
-            }
-            is GroupsAction.OpenTransferOwnershipDialog -> selectedDialog {
-                GroupsDialog.TransferOwnership(it, action.memberId)
-            }
-            GroupsAction.OpenLeaveGroupDialog -> {
-                if (selectedGroupId.value != null) setDialog(GroupsDialog.LeaveGroup)
-                else setError(GroupsUiError.NotFound)
-            }
-            GroupsAction.OpenDeleteGroupDialog -> {
-                if (selectedGroupId.value != null) setDialog(GroupsDialog.DeleteGroup)
-                else setError(GroupsUiError.NotFound)
-            }
+            GroupsAction.OpenUpdateGroupDialog -> openUpdateDialog()
+            GroupsAction.OpenInviteMemberDialog -> openInviteDialog()
+            is GroupsAction.OpenChangeMemberRoleDialog -> openChangeRoleDialog(action.memberId)
+            is GroupsAction.OpenRemoveMemberDialog -> openRemoveMemberDialog(action.memberId)
+            is GroupsAction.OpenTransferOwnershipDialog -> openTransferDialog(action.memberId)
+            GroupsAction.OpenLeaveGroupDialog -> openLeaveDialog()
+            GroupsAction.OpenDeleteGroupDialog -> openDeleteDialog()
             is GroupsAction.OpenInviteResponseDialog -> setDialog(
                 GroupsDialog.RespondToInvite(action.inviteId)
             )
@@ -106,6 +105,23 @@ class GroupsViewModel(
             GroupsAction.DeleteGroup -> deleteGroup()
             GroupsAction.DismissError -> setError(null)
         }
+    }
+
+    private fun GroupsAction.isBlockedDuringMutation(): Boolean = when (this) {
+        is GroupsAction.OpenGroup,
+        GroupsAction.Back,
+        GroupsAction.Refresh,
+        GroupsAction.OpenCreateGroupDialog,
+        GroupsAction.OpenUpdateGroupDialog,
+        GroupsAction.OpenInviteMemberDialog,
+        is GroupsAction.OpenChangeMemberRoleDialog,
+        is GroupsAction.OpenRemoveMemberDialog,
+        is GroupsAction.OpenTransferOwnershipDialog,
+        GroupsAction.OpenLeaveGroupDialog,
+        GroupsAction.OpenDeleteGroupDialog,
+        is GroupsAction.OpenInviteResponseDialog,
+        GroupsAction.DismissDialog -> true
+        else -> false
     }
 
     private fun observeGroups() {
@@ -148,25 +164,33 @@ class GroupsViewModel(
     }
 
     private fun refresh() {
-        if (pendingMutation.value != null) return
+        if (pendingMutation.value != null || refreshJob?.isActive == true) return
+        val requestGeneration = ++refreshGeneration
         isRefreshing.value = true
         error.value = null
         isOffline.value = false
         render()
-        viewModelScope.launch {
-            val result = try {
-                repository.refreshGroups()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (throwable: Exception) {
-                CollaborationMutationResult.Failure(mapThrowableToDomain(throwable))
+        refreshJob = viewModelScope.launch {
+            try {
+                val result = try {
+                    repository.refreshGroups()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (throwable: Exception) {
+                    CollaborationMutationResult.Failure(mapThrowableToDomain(throwable))
+                }
+                if (requestGeneration != refreshGeneration || pendingMutation.value != null) return@launch
+                refreshCompleted.value = true
+                applyRefreshResult(result)
+                normalizeSelectionIfLoaded()
+                tryRefreshInvites()
+            } finally {
+                if (requestGeneration == refreshGeneration) {
+                    isRefreshing.value = false
+                    refreshJob = null
+                    render()
+                }
             }
-            refreshCompleted.value = true
-            isRefreshing.value = false
-            applyRefreshResult(result)
-            normalizeSelectionIfLoaded()
-            tryRefreshInvites()
-            render()
         }
     }
 
@@ -183,6 +207,7 @@ class GroupsViewModel(
     private fun applyRefreshResult(result: CollaborationMutationResult) {
         when (result) {
             CollaborationMutationResult.Applied,
+            is CollaborationMutationResult.Created,
             CollaborationMutationResult.Queued -> {
                 error.value = null
                 isOffline.value = false
@@ -203,12 +228,19 @@ class GroupsViewModel(
             setError(GroupsUiError.NotFound)
             return
         }
+        if (selectedGroupId.value == groupId && detailRefreshJob?.isActive == true) return
+        detailRefreshJob?.cancel()
+        val requestGeneration = ++detailGeneration
         selectGroup(groupId)
-        viewModelScope.launch {
+        detailRefreshJob = viewModelScope.launch {
             try {
                 val result = repository.refreshGroup(groupId)
+                if (requestGeneration != detailGeneration || selectedGroupId.value != groupId) {
+                    return@launch
+                }
                 when (result) {
                     CollaborationMutationResult.Applied,
+                    is CollaborationMutationResult.Created,
                     CollaborationMutationResult.Queued -> Unit
                     CollaborationMutationResult.NetworkRequired -> {
                         applyError(CollaborationError.NetworkUnavailable())
@@ -221,14 +253,103 @@ class GroupsViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (throwable: Exception) {
-                setError(mapThrowable(throwable))
+                if (requestGeneration == detailGeneration && selectedGroupId.value == groupId) {
+                    setError(mapThrowable(throwable))
+                }
+            } finally {
+                if (requestGeneration == detailGeneration) detailRefreshJob = null
             }
-            render()
         }
     }
 
-    private fun selectedDialog(builder: (CollaborationGroupId) -> GroupsDialog) {
-        selectedGroupId.value?.let { setDialog(builder(it)) } ?: setError(GroupsUiError.NotFound)
+    private fun openUpdateDialog() {
+        val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        if (actorPermissions()?.canEditGroup == true) {
+            setDialog(GroupsDialog.UpdateGroup(groupId))
+        } else {
+            denyDialog()
+        }
+    }
+
+    private fun openInviteDialog() {
+        val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        if (actorPermissions()?.canInviteMember == true) {
+            setDialog(GroupsDialog.InviteMember(groupId))
+        } else {
+            denyDialog()
+        }
+    }
+
+    private fun openChangeRoleDialog(memberId: UserId) {
+        val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        val target = findMember(memberId) ?: return setError(GroupsUiError.MemberNotFound)
+        val actorRole = actorRole() ?: return denyDialog()
+        val alternateRole = if (target.role == GroupRole.ADMIN) {
+            GroupRole.MEMBER
+        } else {
+            GroupRole.ADMIN
+        }
+        if (GroupPermissionEvaluator.canChangeMemberRole(actorRole, target.role, alternateRole)) {
+            setDialog(GroupsDialog.ChangeMemberRole(groupId, memberId))
+        } else {
+            denyDialog()
+        }
+    }
+
+    private fun openRemoveMemberDialog(memberId: UserId) {
+        val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        val target = findMember(memberId) ?: return setError(GroupsUiError.MemberNotFound)
+        val actorRole = actorRole() ?: return denyDialog()
+        if (GroupPermissionEvaluator.canRemoveMember(actorRole, target.role)) {
+            setDialog(GroupsDialog.RemoveMember(groupId, memberId))
+        } else {
+            denyDialog()
+        }
+    }
+
+    private fun openTransferDialog(memberId: UserId) {
+        val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        val target = findMember(memberId) ?: return setError(GroupsUiError.MemberNotFound)
+        val actorRole = actorRole() ?: return denyDialog()
+        if (GroupPermissionEvaluator.canTransferOwnership(actorRole, target.role)) {
+            setDialog(GroupsDialog.TransferOwnership(groupId, memberId))
+        } else {
+            denyDialog()
+        }
+    }
+
+    private fun openLeaveDialog() {
+        if (selectedGroupId.value == null) return setError(GroupsUiError.NotFound)
+        val role = actorRole()
+        if (role != null && GroupPermissionEvaluator.canLeaveGroup(role, members.value.size == 1)) {
+            setDialog(GroupsDialog.LeaveGroup)
+        } else {
+            denyDialog()
+        }
+    }
+
+    private fun openDeleteDialog() {
+        if (selectedGroupId.value == null) return setError(GroupsUiError.NotFound)
+        if (actorRole()?.let(GroupPermissionEvaluator::canDeleteGroup) == true) {
+            setDialog(GroupsDialog.DeleteGroup)
+        } else {
+            denyDialog()
+        }
+    }
+
+    private fun actorRole(): GroupRole? =
+        currentUserId?.let { id -> members.value.firstOrNull { it.userId == id }?.role }
+
+    private fun actorPermissions() = actorRole()?.let { role ->
+        currentUserId?.let { GroupPermissionEvaluator.permissionsFor(it, role) }
+    }
+
+    private fun findMember(memberId: UserId): GroupMember? =
+        members.value.firstOrNull { it.userId == memberId }
+
+    private fun denyDialog() {
+        dialog.value = null
+        setError(GroupsUiError.NotAuthorized)
     }
 
     private fun createGroup(action: GroupsAction.CreateGroup) {
@@ -246,6 +367,7 @@ class GroupsViewModel(
 
     private fun updateGroup(action: GroupsAction.UpdateGroup) {
         val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        if (actorPermissions()?.canEditGroup != true) return denyDialog()
         val command = try {
             UpdateGroupCommand(groupId, action.name, action.description)
         } catch (validation: IllegalArgumentException) {
@@ -259,6 +381,7 @@ class GroupsViewModel(
 
     private fun inviteMember(action: GroupsAction.InviteMember) {
         val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        if (actorPermissions()?.canInviteMember != true) return denyDialog()
         val command = try {
             InviteMemberCommand(groupId, action.email)
         } catch (validation: IllegalArgumentException) {
@@ -284,6 +407,11 @@ class GroupsViewModel(
 
     private fun changeMemberRole(action: GroupsAction.ChangeMemberRole) {
         val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        val target = findMember(action.memberId) ?: return setError(GroupsUiError.MemberNotFound)
+        val actorRole = actorRole() ?: return denyDialog()
+        if (!GroupPermissionEvaluator.canChangeMemberRole(actorRole, target.role, action.targetRole)) {
+            return denyDialog()
+        }
         val command = try {
             ChangeMemberRoleCommand(groupId, action.memberId, action.targetRole)
         } catch (validation: IllegalArgumentException) {
@@ -297,6 +425,9 @@ class GroupsViewModel(
 
     private fun removeMember(memberId: UserId) {
         val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        val target = findMember(memberId) ?: return setError(GroupsUiError.MemberNotFound)
+        val actorRole = actorRole() ?: return denyDialog()
+        if (!GroupPermissionEvaluator.canRemoveMember(actorRole, target.role)) return denyDialog()
         mutate(PendingGroupsMutation(GroupsMutation.REMOVE_MEMBER, groupId, memberId)) {
             repository.removeMember(RemoveMemberCommand(groupId, memberId))
         }
@@ -304,6 +435,11 @@ class GroupsViewModel(
 
     private fun transferOwnership(newOwnerId: UserId) {
         val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        val target = findMember(newOwnerId) ?: return setError(GroupsUiError.MemberNotFound)
+        val actorRole = actorRole() ?: return denyDialog()
+        if (!GroupPermissionEvaluator.canTransferOwnership(actorRole, target.role)) {
+            return denyDialog()
+        }
         mutate(PendingGroupsMutation(GroupsMutation.TRANSFER_OWNERSHIP, groupId, newOwnerId)) {
             repository.transferOwnership(TransferOwnershipCommand(groupId, newOwnerId))
         }
@@ -311,6 +447,10 @@ class GroupsViewModel(
 
     private fun leaveGroup() {
         val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        val actorRole = actorRole() ?: return denyDialog()
+        if (!GroupPermissionEvaluator.canLeaveGroup(actorRole, members.value.size == 1)) {
+            return denyDialog()
+        }
         mutate(PendingGroupsMutation(GroupsMutation.LEAVE_GROUP, groupId)) {
             repository.leaveGroup(LeaveGroupCommand(groupId))
         }
@@ -318,6 +458,9 @@ class GroupsViewModel(
 
     private fun deleteGroup() {
         val groupId = selectedGroupId.value ?: return setError(GroupsUiError.NotFound)
+        if (actorRole()?.let(GroupPermissionEvaluator::canDeleteGroup) != true) {
+            return denyDialog()
+        }
         mutate(PendingGroupsMutation(GroupsMutation.DELETE_GROUP, groupId)) {
             repository.deleteGroup(DeleteGroupCommand(groupId))
         }
@@ -327,49 +470,79 @@ class GroupsViewModel(
         mutation: PendingGroupsMutation,
         action: suspend () -> CollaborationMutationResult
     ) {
-        if (pendingMutation.value != null) return
+        if (pendingMutation.value != null || mutationJob?.isActive == true) return
+        refreshJob?.cancel()
+        refreshJob = null
+        isRefreshing.value = false
+        ++refreshGeneration
+        val requestGeneration = ++mutationGeneration
         pendingMutation.value = mutation
         error.value = null
         render()
-        viewModelScope.launch {
-            val result = try {
-                action()
-            } catch (cancelled: CancellationException) {
+        mutationJob = viewModelScope.launch {
+            try {
+                val result = try {
+                    action()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (throwable: Exception) {
+                    CollaborationMutationResult.Failure(mapThrowableToDomain(throwable))
+                }
+                if (requestGeneration != mutationGeneration || pendingMutation.value != mutation) {
+                    return@launch
+                }
                 pendingMutation.value = null
-                render()
-                throw cancelled
-            } catch (throwable: Exception) {
-                CollaborationMutationResult.Failure(mapThrowableToDomain(throwable))
-            }
-            pendingMutation.value = null
-            when (result) {
-                CollaborationMutationResult.Applied,
-                CollaborationMutationResult.Queued -> {
-                    dialog.value = null
-                    error.value = null
-                    isOffline.value = false
-                    effectsChannel.trySend(GroupsEffect.MutationCompleted(mutation.mutation))
-                    if (mutation.mutation == GroupsMutation.LEAVE_GROUP ||
-                        mutation.mutation == GroupsMutation.DELETE_GROUP
-                    ) {
-                        clearSelection(emitEffect = false)
-                        effectsChannel.trySend(GroupsEffect.NavigateToList)
+                when (result) {
+                    CollaborationMutationResult.Applied,
+                    is CollaborationMutationResult.Created,
+                    CollaborationMutationResult.Queued -> {
+                        dialog.value = null
+                        error.value = null
+                        isOffline.value = false
+                        effectsChannel.trySend(GroupsEffect.MutationCompleted(mutation.mutation))
+                        if (result is CollaborationMutationResult.Created &&
+                            mutation.mutation == GroupsMutation.CREATE_GROUP
+                        ) {
+                            selectGroup(result.groupId)
+                            effectsChannel.trySend(GroupsEffect.NavigateToDetail(result.groupId))
+                        }
+                        if (mutation.mutation == GroupsMutation.LEAVE_GROUP ||
+                            mutation.mutation == GroupsMutation.DELETE_GROUP
+                        ) {
+                            clearSelection(emitEffect = false)
+                            effectsChannel.trySend(GroupsEffect.NavigateToList)
+                        }
                     }
+                    CollaborationMutationResult.NetworkRequired -> {
+                        applyError(CollaborationError.NetworkUnavailable())
+                        isOffline.value = true
+                    }
+                    is CollaborationMutationResult.Failure -> applyError(result.error)
+                    is CollaborationMutationResult.Conflict -> applyError(result.error)
+                    is CollaborationMutationResult.NotAuthorized -> applyError(result.error)
+                    is CollaborationMutationResult.InvalidState -> applyError(result.error)
                 }
-                CollaborationMutationResult.NetworkRequired -> {
-                    applyError(CollaborationError.NetworkUnavailable())
-                    isOffline.value = true
+            } catch (cancelled: CancellationException) {
+                if (requestGeneration == mutationGeneration && pendingMutation.value == mutation) {
+                    pendingMutation.value = null
+                    render()
                 }
-                is CollaborationMutationResult.Failure -> applyError(result.error)
-                is CollaborationMutationResult.Conflict -> applyError(result.error)
-                is CollaborationMutationResult.NotAuthorized -> applyError(result.error)
-                is CollaborationMutationResult.InvalidState -> applyError(result.error)
+                throw cancelled
+            } finally {
+                if (requestGeneration == mutationGeneration) {
+                    mutationJob = null
+                    render()
+                }
             }
-            render()
         }
     }
 
     private fun selectGroup(groupId: CollaborationGroupId?) {
+        if (groupId == null) {
+            ++detailGeneration
+            detailRefreshJob?.cancel()
+            detailRefreshJob = null
+        }
         selectedGroupId.value = groupId
         savedStateHandle[SELECTED_GROUP_ID_KEY] = groupId?.value
         members.value = emptyList()
@@ -409,12 +582,44 @@ class GroupsViewModel(
         val selectedId = selectedGroupId.value
         val selected = groups.value.firstOrNull { it.id == selectedId }
         val detail = selected?.let {
+            val actorRole = actorRole()
+            val actorPermissions = actorPermissions()
             GroupDetailUiModel(
                 group = it,
                 members = members.value,
                 permissionsByMemberId = members.value.associate { member ->
-                    member.userId to GroupPermissionEvaluator.permissionsFor(member.userId, member.role)
-                }
+                    member.userId to (
+                        actorPermissions
+                            ?: GroupPermissionEvaluator.permissionsFor(member.userId, member.role)
+                        )
+                },
+                currentUserId = currentUserId,
+                currentUserRole = actorRole,
+                actorPermissions = actorPermissions,
+                memberActionsByMemberId = members.value.associate { member ->
+                    member.userId to GroupMemberUiPermissions(
+                        canChangeRole = actorRole?.let { role ->
+                            GroupPermissionEvaluator.canChangeMemberRole(
+                                actorRole = role,
+                                targetRole = member.role,
+                                newRole = if (member.role == GroupRole.ADMIN) {
+                                    GroupRole.MEMBER
+                                } else {
+                                    GroupRole.ADMIN
+                                }
+                            )
+                        } == true,
+                        canRemove = actorRole?.let { role ->
+                            GroupPermissionEvaluator.canRemoveMember(role, member.role)
+                        } == true,
+                        canTransferOwnership = actorRole?.let { role ->
+                            GroupPermissionEvaluator.canTransferOwnership(role, member.role)
+                        } == true
+                    )
+                },
+                canLeaveGroup = actorRole?.let { role ->
+                    GroupPermissionEvaluator.canLeaveGroup(role, members.value.size == 1)
+                } == true
             )
         }
         val hasCachedData = groups.value.isNotEmpty()

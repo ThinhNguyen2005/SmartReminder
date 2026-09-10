@@ -1,5 +1,7 @@
 package com.smartreminder.domain.repository
 
+import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
+
 sealed interface CollaborationMutationResult {
     companion object {
         fun fromEnvelope(envelope: CollaborationMutationEnvelope): CollaborationMutationResult {
@@ -27,6 +29,8 @@ sealed interface CollaborationMutationResult {
     }
 
     data object Applied : CollaborationMutationResult
+    /** A create mutation applied remotely and returned its newly-created group id. */
+    data class Created(val groupId: CollaborationGroupId) : CollaborationMutationResult
     data object Queued : CollaborationMutationResult
     data class Conflict(val error: CollaborationError) : CollaborationMutationResult
     data class NotAuthorized(val error: CollaborationError) : CollaborationMutationResult

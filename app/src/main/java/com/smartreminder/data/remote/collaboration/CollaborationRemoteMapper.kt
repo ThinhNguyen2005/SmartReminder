@@ -23,6 +23,8 @@ import com.smartreminder.domain.repository.CollaborationMutationStatus
 import java.time.Instant
 import java.time.format.DateTimeParseException
 import java.util.Locale
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 object CollaborationRemoteMapper {
 
@@ -146,6 +148,20 @@ object CollaborationRemoteMapper {
                 }
             )
         )
+
+    /** Maps the create RPC envelope and preserves Task 2's typed group id payload. */
+    fun toCreateGroupMutationResult(
+        dto: CollaborationMutationEnvelopeRemoteDto
+    ): CollaborationMutationResult {
+        val result = toMutationResult(dto)
+        if (result !== CollaborationMutationResult.Applied) return result
+
+        val groupId = (dto.data["group_id"] as? JsonPrimitive)?.contentOrNull
+            ?.takeIf(String::isNotBlank)
+            ?.let(::CollaborationGroupId)
+        return groupId?.let(CollaborationMutationResult::Created)
+            ?: CollaborationMutationResult.Applied
+    }
 
     fun toMutationEnvelope(dto: CollaborationMutationEnvelopeRemoteDto): CollaborationMutationEnvelope =
         CollaborationMutationEnvelope(

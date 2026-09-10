@@ -17,6 +17,7 @@ import com.smartreminder.data.remote.SupabaseManager
 import com.smartreminder.data.remote.preferences.SupabaseUserPreferencesCloudRepository
 import com.smartreminder.data.sync.DefaultUserPreferencesSyncCoordinator
 import com.smartreminder.domain.repository.CollaborationRepository
+import com.smartreminder.domain.model.collaboration.ids.UserId
 import com.smartreminder.domain.repository.RoutineRepository
 import com.smartreminder.domain.repository.ScheduleGroupRepository
 import com.smartreminder.domain.repository.UserPreferencesCloudRepository
@@ -63,7 +64,8 @@ class AppContainer(private val context: Context) {
         DefaultCollaborationRepository(
             cache = RoomCollaborationCacheDataSource(cueDatabase),
             remote = SupabaseCollaborationRemoteDataSource.configured(),
-            network = ::hasValidatedNetwork
+            network = ::hasValidatedNetwork,
+            getCurrentUserId = { SupabaseManager.currentUserIdOrNull()?.let(::UserId) }
         )
     }
 
@@ -72,13 +74,26 @@ class AppContainer(private val context: Context) {
     }
 
     private fun hasValidatedNetwork(): Boolean {
-        val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
-            ?: return false
-        val activeNetwork = connectivityManager.activeNetwork ?: return false
-        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        return hasValidatedNetworkOrAssumeAvailable {
+            context.getSystemService(ConnectivityManager::class.java)
+        }
     }
+}
+
+/**
+ * Connectivity is an optimization only. If the normal permission is absent, let the repository
+ * attempt the remote call so transport/configuration errors remain typed instead of crashing.
+ */
+internal fun hasValidatedNetworkOrAssumeAvailable(
+    connectivityManagerProvider: () -> ConnectivityManager?
+): Boolean = try {
+    val connectivityManager = connectivityManagerProvider() ?: return false
+    val activeNetwork = connectivityManager.activeNetwork ?: return false
+    val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return false
+    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+} catch (_: SecurityException) {
+    true
 }
 
 /** Top-level DataStore delegate — guarantees single instance per file name. */

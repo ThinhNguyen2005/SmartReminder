@@ -45,8 +45,18 @@ import kotlinx.serialization.json.jsonPrimitive
 class DefaultCollaborationRepository(
     private val cache: CollaborationCacheDataSource,
     private val remote: CollaborationRemoteDataSource,
-    private val network: () -> Boolean
+    private val network: () -> Boolean,
+    private val getCurrentUserId: () -> UserId? = { null }
 ) : CollaborationRepository {
+
+    /** Compatibility overload for the original cache/remote/network constructor. */
+    constructor(
+        cache: CollaborationCacheDataSource,
+        remote: CollaborationRemoteDataSource,
+        network: () -> Boolean
+    ) : this(cache, remote, network, { null })
+
+    override fun currentUserId(): UserId? = getCurrentUserId()
 
     override fun observeGroups(): Flow<List<CollaborationGroup>> =
         cache.observeGroups().map { groups -> groups.map(CollaborationRemoteMapper::fromCache) }
@@ -109,6 +119,7 @@ class DefaultCollaborationRepository(
     override suspend fun createGroup(command: CreateGroupCommand): CollaborationMutationResult =
         executeMutation(
             action = { remote.createGroup(command) },
+            resultMapper = CollaborationRemoteMapper::toCreateGroupMutationResult,
             afterApplied = { refreshGroups() }
         )
 
@@ -189,14 +200,25 @@ class DefaultCollaborationRepository(
 
     private suspend fun executeMutation(
         action: suspend () -> CollaborationMutationEnvelopeRemoteDto,
+        resultMapper: (CollaborationMutationEnvelopeRemoteDto) -> CollaborationMutationResult =
+            CollaborationRemoteMapper::toMutationResult,
         afterApplied: suspend (CollaborationMutationEnvelopeRemoteDto) -> Unit = {}
     ): CollaborationMutationResult {
-        if (!network()) return CollaborationMutationResult.NetworkRequired
+        val networkAvailable = try {
+            network()
+        } catch (_: SecurityException) {
+            // A missing ACCESS_NETWORK_STATE permission must not prevent the remote attempt.
+            // Transport/configuration failures are still mapped below to a typed result.
+            true
+        }
+        if (!networkAvailable) return CollaborationMutationResult.NetworkRequired
 
         return try {
             val envelope = action()
-            val result = CollaborationRemoteMapper.toMutationResult(envelope)
-            if (result === CollaborationMutationResult.Applied) {
+            val result = resultMapper(envelope)
+            if (result === CollaborationMutationResult.Applied ||
+                result is CollaborationMutationResult.Created
+            ) {
                 try {
                     afterApplied(envelope)
                 } catch (cancelled: CancellationException) {

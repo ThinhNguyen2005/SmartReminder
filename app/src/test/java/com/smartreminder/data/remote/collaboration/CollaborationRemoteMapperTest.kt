@@ -8,6 +8,8 @@ import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import com.smartreminder.domain.repository.CollaborationError
 import com.smartreminder.domain.repository.CollaborationMutationResult
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
@@ -104,6 +106,21 @@ class CollaborationRemoteMapperTest {
         assertEquals(
             CollaborationError.InviteAlreadyPending,
             (result as CollaborationMutationResult.Failure).error
+        )
+    }
+
+    @Test
+    fun `create envelope maps typed created group id from task 2 data`() {
+        val result = CollaborationRemoteMapper.toCreateGroupMutationResult(
+            CollaborationMutationEnvelopeRemoteDto(
+                status = "APPLIED",
+                data = buildJsonObject { put("group_id", "created-group") }
+            )
+        )
+
+        assertEquals(
+            CollaborationMutationResult.Created(CollaborationGroupId("created-group")),
+            result
         )
     }
 

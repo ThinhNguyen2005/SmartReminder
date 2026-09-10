@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -163,6 +164,28 @@ class DefaultCollaborationRepositoryTest {
 
         assertEquals(CollaborationMutationResult.NetworkRequired, result)
         assertEquals(0, remote.createGroupCalls)
+    }
+
+    @Test
+    fun `create mutation propagates typed created group id from remote envelope`() = runTest {
+        val remote = FakeCollaborationRemoteDataSource().apply {
+            createGroupEnvelope = CollaborationMutationEnvelopeRemoteDto(
+                status = "APPLIED",
+                data = kotlinx.serialization.json.buildJsonObject {
+                    put("group_id", "created-group")
+                }
+            )
+        }
+        val repository = DefaultCollaborationRepository(
+            cache = FakeCollaborationCache(),
+            remote = remote,
+            network = { true }
+        )
+
+        assertEquals(
+            CollaborationMutationResult.Created(CollaborationGroupId("created-group")),
+            repository.createGroup(CreateGroupCommand("Created"))
+        )
     }
 
     @Test
@@ -459,6 +482,7 @@ private class FakeCollaborationRemoteDataSource : CollaborationRemoteDataSource 
     var groupFailure: Throwable? = null
     var invitesFailure: Throwable? = null
     var createGroupFailure: Throwable? = null
+    var createGroupEnvelope: CollaborationMutationEnvelopeRemoteDto = applied()
     var createGroupCalls: Int = 0
     var fetchGroupsCalls: Int = 0
     var fetchInvitesCalls: Int = 0
@@ -489,7 +513,7 @@ private class FakeCollaborationRemoteDataSource : CollaborationRemoteDataSource 
         createGroupCalls += 1
         mutationCalls += "createGroup"
         createGroupFailure?.let { throw it }
-        return applied()
+        return createGroupEnvelope
     }
 
     override suspend fun updateGroup(command: UpdateGroupCommand): CollaborationMutationEnvelopeRemoteDto {

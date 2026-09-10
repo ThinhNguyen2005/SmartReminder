@@ -79,10 +79,22 @@ data class PendingGroupsMutation(
     val inviteId: GroupInviteId? = null
 )
 
+/** Actor-relative actions for one target member in the selected group. */
+data class GroupMemberUiPermissions(
+    val canChangeRole: Boolean,
+    val canRemove: Boolean,
+    val canTransferOwnership: Boolean
+)
+
 data class GroupDetailUiModel(
     val group: CollaborationGroup,
     val members: List<GroupMember>,
-    val permissionsByMemberId: Map<UserId, GroupPermissions>
+    val permissionsByMemberId: Map<UserId, GroupPermissions>,
+    val currentUserId: UserId? = null,
+    val currentUserRole: GroupRole? = null,
+    val actorPermissions: GroupPermissions? = null,
+    val memberActionsByMemberId: Map<UserId, GroupMemberUiPermissions> = emptyMap(),
+    val canLeaveGroup: Boolean = false
 ) {
     val id: CollaborationGroupId
         get() = group.id

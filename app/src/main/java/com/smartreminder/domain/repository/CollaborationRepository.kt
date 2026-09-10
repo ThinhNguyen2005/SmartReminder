@@ -45,6 +45,9 @@ data class EditOwnGroupTaskContentCommand(
 }
 
 interface CollaborationRepository {
+    /** Typed actor identity supplied by the composition/data boundary. */
+    fun currentUserId(): UserId? = null
+
     fun observeGroups(): Flow<List<CollaborationGroup>>
     fun observeGroup(groupId: CollaborationGroupId): Flow<CollaborationGroup?>
     fun observeMembers(groupId: CollaborationGroupId): Flow<List<GroupMember>>
