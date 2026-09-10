@@ -14,4 +14,8 @@ internal object PreferenceKeys {
     val SELECTED_GOALS = stringSetPreferencesKey("selected_goals")
     val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
     val THEME_MODE = stringPreferencesKey("theme_mode")
+    val ROUTINE_REMINDERS = booleanPreferencesKey("routine_reminders")
+    val TASK_REMINDERS = booleanPreferencesKey("task_reminders")
+    val MORNING_BRIEFING = booleanPreferencesKey("morning_briefing")
+    val QUIET_HOURS = booleanPreferencesKey("quiet_hours")
 }

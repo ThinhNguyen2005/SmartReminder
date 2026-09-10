@@ -103,4 +103,16 @@ class DefaultUserPreferencesSyncCoordinator(
         // 4. Clear local database tables to ensure account isolation
         clearLocalDatabase?.invoke()
     }
+
+    override suspend fun forceSync() {
+        val userId = getCurrentUserId() ?: throw IllegalStateException("User not authenticated")
+        val currentPrefs = localRepository.preferences.first()
+        val snapshot = OnboardingPreferencesSnapshot(
+            wakeUpTime = currentPrefs.wakeUpTime,
+            sleepTime = currentPrefs.sleepTime,
+            goals = currentPrefs.goals,
+            onboardingCompleted = currentPrefs.onboardingCompleted
+        )
+        cloudRepository.upsertForUser(userId, snapshot)
+    }
 }
