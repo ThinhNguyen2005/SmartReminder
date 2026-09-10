@@ -77,4 +77,7 @@ private class FakeAuthSyncCoordinator : UserPreferencesSyncCoordinator {
 
     override suspend fun signOutAndClearLocal() {
     }
+
+    override suspend fun forceSync() {
+    }
 }

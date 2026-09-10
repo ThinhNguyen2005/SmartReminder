@@ -197,6 +197,9 @@ private class FakeUserPreferencesSyncCoordinator(
     override suspend fun signOutAndClearLocal() {
         localRepo.clearOnboardingPreferences()
     }
+
+    override suspend fun forceSync() {
+    }
 }
 
 /** Fake in-memory repository implementation for deterministic ViewModel unit tests */
@@ -269,6 +272,21 @@ private class FakeUserPreferencesRepository : UserPreferencesRepository {
             sleepTime = defaults.sleepTime,
             goals = defaults.goals,
             onboardingCompleted = false
+        )
+    }
+
+    override suspend fun updateNotificationPreferences(
+        routineReminders: Boolean,
+        taskReminders: Boolean,
+        morningBriefing: Boolean,
+        quietHours: Boolean
+    ) {
+        if (shouldThrowOnWrite) throw IOException("Simulated disk write failure")
+        _preferencesFlow.value = _preferencesFlow.value.copy(
+            routineRemindersEnabled = routineReminders,
+            taskRemindersEnabled = taskReminders,
+            morningBriefingEnabled = morningBriefing,
+            quietHoursEnabled = quietHours
         )
     }
 }
