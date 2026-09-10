@@ -105,6 +105,14 @@ class CollaborationRoomMigrationTest {
                 }
             }
             assertTrue(actualTables.containsAll(expectedTables))
+
+            val pendingColumns = buildSet {
+                migrated.query("PRAGMA table_info(pending_group_commands)").use { cursor ->
+                    val nameColumn = cursor.getColumnIndexOrThrow("name")
+                    while (cursor.moveToNext()) add(cursor.getString(nameColumn))
+                }
+            }
+            assertTrue(pendingColumns.contains("enqueue_sequence"))
         } finally {
             migrated.close()
         }

@@ -117,6 +117,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
                 `payload_version` INTEGER NOT NULL,
                 `expected_version` INTEGER,
                 `created_at` INTEGER NOT NULL,
+                `enqueue_sequence` INTEGER NOT NULL,
                 `attempt_count` INTEGER NOT NULL,
                 `state` TEXT NOT NULL,
                 `last_error` TEXT,
@@ -126,5 +127,6 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_group_commands_state` ON `pending_group_commands` (`state`)")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_group_commands_created_at` ON `pending_group_commands` (`created_at`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_group_commands_enqueue_sequence` ON `pending_group_commands` (`enqueue_sequence`)")
     }
 }

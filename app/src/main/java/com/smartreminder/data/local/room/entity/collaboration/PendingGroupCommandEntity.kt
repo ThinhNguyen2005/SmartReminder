@@ -9,7 +9,8 @@ import androidx.room.PrimaryKey
     tableName = "pending_group_commands",
     indices = [
         Index(value = ["state"]),
-        Index(value = ["created_at"])
+        Index(value = ["created_at"]),
+        Index(value = ["enqueue_sequence"])
     ]
 )
 data class PendingGroupCommandEntity(
@@ -28,6 +29,8 @@ data class PendingGroupCommandEntity(
     val expectedVersion: Long?,
     @ColumnInfo(name = "created_at")
     val createdAt: Long,
+    @ColumnInfo(name = "enqueue_sequence")
+    val enqueueSequence: Long,
     @ColumnInfo(name = "attempt_count")
     val attemptCount: Int,
     @ColumnInfo(name = "state")
