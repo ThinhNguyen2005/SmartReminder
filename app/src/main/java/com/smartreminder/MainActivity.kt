@@ -52,7 +52,7 @@ import com.smartreminder.ui.schedules.SchedulesViewModel
 import com.smartreminder.ui.schedules.SchedulesViewModelFactory
 import com.smartreminder.ui.schedules.editor.UuidRoutineEditorIdGenerator
 import com.smartreminder.ui.calendar.CalendarPlaceholderScreen
-import com.smartreminder.ui.groups.GroupsPlaceholderScreen
+import com.smartreminder.ui.groups.GroupsRoute
 import com.smartreminder.ui.groups.GroupsViewModel
 import com.smartreminder.ui.theme.SmartReminderTheme
 import com.smartreminder.ui.today.TodayPlaceholderScreen
@@ -137,9 +137,13 @@ class MainActivity : ComponentActivity() {
                                     routineRepository = appContainer.routineRepository
                                 )
                             )
+                            val groupsViewModel: GroupsViewModel = viewModel(
+                                factory = appContainer.groupsViewModelFactory
+                            )
                             SmartReminderApp(
                                 schedulesViewModel = schedulesViewModel,
-                                appContainer = appContainer
+                                appContainer = appContainer,
+                                groupsViewModel = groupsViewModel
                             )
                         }
                     }
@@ -152,6 +156,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SmartReminderApp(
     schedulesViewModel: SchedulesViewModel,
+    groupsViewModel: GroupsViewModel,
     appContainer: AppContainer? = null
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.TODAY) }
@@ -205,10 +210,8 @@ fun SmartReminderApp(
                         }
                     }
                     AppDestination.GROUPS -> {
-                        if (appContainer != null) {
-                            viewModel<GroupsViewModel>(factory = appContainer.groupsViewModelFactory)
-                        }
-                        GroupsPlaceholderScreen(
+                        GroupsRoute(
+                            viewModel = groupsViewModel,
                             modifier = Modifier.padding(innerPadding)
                         )
                     }
