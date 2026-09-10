@@ -151,6 +151,13 @@ class CollaborationRoomMigrationTest {
                 )
             )
             execSQL(
+                """
+                INSERT INTO routine_overrides (routine_id, override_date_epoch_day, override_type)
+                VALUES (?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>("legacy_routine", 20L, "SKIP")
+            )
+            execSQL(
                 "INSERT INTO routine_weekly_days (routine_id, day_of_week) VALUES (?, ?)",
                 arrayOf<Any?>("legacy_routine", 1)
             )
@@ -264,6 +271,12 @@ class CollaborationRoomMigrationTest {
             assertEquals("Legacy group", migrated.queryString("SELECT name FROM schedule_groups WHERE id = 'legacy_group'"))
             assertEquals("Legacy routine", migrated.queryString("SELECT name FROM routines WHERE id = 'legacy_routine'"))
             assertEquals("Legacy item", migrated.queryString("SELECT title FROM routine_items WHERE id = 'legacy_item'"))
+            assertEquals(
+                "SKIP",
+                migrated.queryString(
+                    "SELECT override_type FROM routine_overrides WHERE routine_id = 'legacy_routine' AND override_date_epoch_day = 20"
+                )
+            )
             assertEquals(1L, migrated.queryLong("SELECT day_of_week FROM routine_weekly_days WHERE routine_id = 'legacy_routine'"))
             assertEquals("Collaboration group", migrated.queryString("SELECT name FROM cached_collaboration_groups WHERE id = 'collab_group'"))
             assertEquals("member_1", migrated.queryString("SELECT user_id FROM cached_group_members WHERE group_id = 'collab_group'"))
