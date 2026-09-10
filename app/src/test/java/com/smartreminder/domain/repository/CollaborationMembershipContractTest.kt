@@ -59,6 +59,35 @@ class CollaborationMembershipContractTest {
     }
 
     @Test
+    fun `invite email rejects malformed domain labels`() {
+        listOf(
+            "lan@example..com",
+            "lan@-example.com",
+            "lan@example-.com",
+            "lan@sub..example.com"
+        ).forEach { raw ->
+            try {
+                InviteEmail(raw)
+                fail("Expected malformed domain to be rejected: '$raw'")
+            } catch (_: IllegalArgumentException) {
+                // Expected.
+            }
+        }
+    }
+
+    @Test
+    fun `invite email accepts valid domain label table`() {
+        listOf(
+            "lan@example.com",
+            "lan@sub.example.co.uk",
+            "test+cue@domain.co.uk",
+            "user-name@smart-reminder.vn"
+        ).forEach { raw ->
+            InviteEmail(raw)
+        }
+    }
+
+    @Test
     fun `membership commands do not expose actor or caller selected create or invite role`() {
         val createFields = CreateGroupCommand::class.java.declaredFields.map { it.name }.toSet()
         val inviteFields = InviteMemberCommand::class.java.declaredFields.map { it.name }.toSet()
