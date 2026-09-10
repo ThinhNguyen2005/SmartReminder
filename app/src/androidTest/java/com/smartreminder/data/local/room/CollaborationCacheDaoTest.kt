@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.smartreminder.data.local.room.entity.collaboration.CachedCollaborationGroupEntity
+import com.smartreminder.data.local.room.entity.collaboration.CachedGroupInviteEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupMemberEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskEntity
 import com.smartreminder.data.local.room.entity.collaboration.PendingGroupCommandEntity
@@ -43,6 +44,28 @@ class CollaborationCacheDaoTest {
         val observedIds = database.collaborationCacheDao().observeGroups().first().map { it.id }
 
         assertEquals(listOf("group_a", "group_b"), observedIds)
+    }
+
+    @Test
+    fun givenInviteBeforeGroupCache_whenUpserted_thenInviteIsObserved() = runTest {
+        val cacheDao = database.collaborationCacheDao()
+        cacheDao.upsertInvites(
+            listOf(
+                CachedGroupInviteEntity(
+                    id = "invite_1",
+                    groupId = "group_not_cached",
+                    inviterId = "owner_1",
+                    inviteeUserId = "user_1",
+                    status = "PENDING",
+                    createdAt = 1L,
+                    respondedAt = null
+                )
+            )
+        )
+
+        val observedIds = cacheDao.observeInvites().first().map { it.id }
+
+        assertEquals(listOf("invite_1"), observedIds)
     }
 
     @Test

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "b12a5a877d15dbd2ffd9446316ffde84",
+    "identityHash": "ca025eeb7b3918b167d4559b7342e97d",
     "entities": [
       {
         "tableName": "schedule_groups",
@@ -412,7 +412,7 @@
       },
       {
         "tableName": "cached_group_invites",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `group_id` TEXT NOT NULL, `inviter_id` TEXT NOT NULL, `invitee_user_id` TEXT NOT NULL, `status` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `responded_at` INTEGER, PRIMARY KEY(`id`), FOREIGN KEY(`group_id`) REFERENCES `cached_collaboration_groups`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `group_id` TEXT NOT NULL, `inviter_id` TEXT NOT NULL, `invitee_user_id` TEXT NOT NULL, `status` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `responded_at` INTEGER, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -471,19 +471,6 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_cached_group_invites_group_id` ON `${TABLE_NAME}` (`group_id`)"
-          }
-        ],
-        "foreignKeys": [
-          {
-            "table": "cached_collaboration_groups",
-            "onDelete": "CASCADE",
-            "onUpdate": "NO ACTION",
-            "columns": [
-              "group_id"
-            ],
-            "referencedColumns": [
-              "id"
-            ]
           }
         ]
       },
@@ -813,7 +800,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b12a5a877d15dbd2ffd9446316ffde84')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ca025eeb7b3918b167d4559b7342e97d')"
     ]
   }
 }

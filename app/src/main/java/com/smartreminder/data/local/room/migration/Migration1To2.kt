@@ -45,8 +45,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
                 `status` TEXT NOT NULL,
                 `created_at` INTEGER NOT NULL,
                 `responded_at` INTEGER,
-                PRIMARY KEY(`id`),
-                FOREIGN KEY(`group_id`) REFERENCES `cached_collaboration_groups`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                PRIMARY KEY(`id`)
             )
             """.trimIndent()
         )
