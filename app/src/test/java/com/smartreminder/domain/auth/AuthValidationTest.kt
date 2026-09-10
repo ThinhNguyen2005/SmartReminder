@@ -26,7 +26,7 @@ class AuthValidationTest {
 
     @Test
     fun `given valid supabase url, when validating url, then returns true`() {
-        val validUrl = "https://ygmzcumcmkyfjnzrrrah.supabase.co"
+        val validUrl = "https://g2-dev-project.supabase.co"
         assertTrue(AuthValidationHelper.isValidSupabaseUrl(validUrl))
     }
 

@@ -24,6 +24,12 @@ interface CollaborationCacheDao {
     @Upsert
     suspend fun upsertGroup(group: CachedCollaborationGroupEntity)
 
+    @Upsert
+    suspend fun upsertGroups(groups: List<CachedCollaborationGroupEntity>)
+
+    @Query("DELETE FROM cached_collaboration_groups")
+    suspend fun deleteAllGroups()
+
     @Query("DELETE FROM cached_collaboration_groups WHERE id = :groupId")
     suspend fun deleteGroup(groupId: String)
 
@@ -73,6 +79,9 @@ interface CollaborationCacheDao {
 
     @Upsert
     suspend fun upsertInvites(invites: List<CachedGroupInviteEntity>)
+
+    @Query("DELETE FROM cached_group_invites")
+    suspend fun deleteAllInvites()
 
     @Transaction
     suspend fun upsertInvites(groupId: String, invites: List<CachedGroupInviteEntity>) {

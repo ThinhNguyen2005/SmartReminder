@@ -1,3 +1,25 @@
+import java.util.Properties
+
+val localSupabaseProperties = Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.isFile) {
+        localFile.inputStream().use(::load)
+    }
+}
+
+fun configuredSupabaseValue(propertyName: String, environmentName: String): String =
+    providers.gradleProperty(propertyName).orNull
+        ?: providers.environmentVariable(environmentName).orNull
+        ?: localSupabaseProperties.getProperty(propertyName)
+        ?: localSupabaseProperties.getProperty(environmentName)
+        ?: ""
+
+fun String.asBuildConfigString(): String =
+    "\"${replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")}\""
+
+val collaborationSupabaseUrl = configuredSupabaseValue("supabase.url", "SUPABASE_URL")
+val collaborationSupabaseAnonKey = configuredSupabaseValue("supabase.anonKey", "SUPABASE_ANON_KEY")
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -22,6 +44,9 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        buildConfigField("String", "COLLABORATION_SUPABASE_URL", collaborationSupabaseUrl.asBuildConfigString())
+        buildConfigField("String", "COLLABORATION_SUPABASE_ANON_KEY", collaborationSupabaseAnonKey.asBuildConfigString())
+
         ksp {
             arg("room.schemaLocation", "$projectDir/schemas")
         }
@@ -40,6 +65,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     sourceSets {
         getByName("androidTest").assets.directories.add("$projectDir/schemas")
