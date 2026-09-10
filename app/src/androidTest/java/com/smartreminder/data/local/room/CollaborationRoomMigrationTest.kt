@@ -155,7 +155,7 @@ class CollaborationRoomMigrationTest {
                 INSERT INTO routine_overrides (routine_id, override_date_epoch_day, override_type)
                 VALUES (?, ?, ?)
                 """.trimIndent(),
-                arrayOf<Any?>("legacy_routine", 20L, "SKIP")
+                arrayOf<Any?>("legacy_routine", 20L, "skip")
             )
             execSQL(
                 "INSERT INTO routine_weekly_days (routine_id, day_of_week) VALUES (?, ?)",
@@ -272,7 +272,7 @@ class CollaborationRoomMigrationTest {
             assertEquals("Legacy routine", migrated.queryString("SELECT name FROM routines WHERE id = 'legacy_routine'"))
             assertEquals("Legacy item", migrated.queryString("SELECT title FROM routine_items WHERE id = 'legacy_item'"))
             assertEquals(
-                "SKIP",
+                "skip",
                 migrated.queryString(
                     "SELECT override_type FROM routine_overrides WHERE routine_id = 'legacy_routine' AND override_date_epoch_day = 20"
                 )
