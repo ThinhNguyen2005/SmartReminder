@@ -159,6 +159,61 @@
     <string name="profile_notifications_description">Thông báo</string>
     <string name="profile_wake_time_dialog_title">Chọn giờ thức dậy</string>
     <string name="profile_sleep_time_dialog_title">Chọn giờ đi ngủ</string>
+    <string name="profile_theme_picker_title">Chọn giao diện</string>
+    <string name="profile_theme_system">Theo hệ thống</string>
+    <string name="profile_theme_light">Sáng</string>
+    <string name="profile_theme_dark">Tối</string>
+    <string name="profile_sync_in_progress">Đang đồng bộ tài khoản...</string>
+    <string name="profile_sync_success">Đồng bộ tài khoản thành công!</string>
+    <string name="profile_sync_failed">Đồng bộ thất bại. Vui lòng thử lại.</string>
+    <string name="profile_edit_dialog_title">Chỉnh sửa hồ sơ</string>
+    <string name="profile_edit_name_label">Tên hiển thị</string>
+    <string name="profile_edit_name_placeholder">Nhập tên của bạn</string>
+    <string name="profile_edit_avatar_label">URL Ảnh đại diện</string>
+    <string name="profile_edit_avatar_placeholder">https://example.com/avatar.jpg</string>
+    <string name="profile_edit_change_photo">Chạm để chọn ảnh từ thư viện</string>
+    <string name="profile_theme_system_desc">Tự động điều chỉnh theo cài đặt thiết bị</string>
+    <string name="profile_theme_light_desc">Giao diện sáng rõ ràng, tươi tắn</string>
+    <string name="profile_theme_dark_desc">Giao diện tối êm dịu, dễ chịu cho mắt</string>
+    <string name="profile_edit_save">Lưu thay đổi</string>
+    <string name="profile_edit_cancel">Hủy</string>
+    <string name="profile_edit_saving">Đang lưu...</string>
+    <string name="profile_edit_success">Đã cập nhật hồ sơ thành công!</string>
+
+    <!-- Cài đặt Thông báo -->
+    <string name="profile_notification_settings_title">Cài đặt thông báo</string>
+    <string name="profile_notif_routine_title">Nhắc nhở Thức dậy &amp; Đi ngủ</string>
+    <string name="profile_notif_routine_desc">Thông báo trước 15 phút khi đến giờ thức dậy và đi ngủ</string>
+    <string name="profile_notif_tasks_title">Cảnh báo Công việc &amp; Lịch trình</string>
+    <string name="profile_notif_tasks_desc">Nhắc nhở khi công việc sắp đến hạn</string>
+    <string name="profile_notif_morning_title">Báo cáo buổi sáng</string>
+    <string name="profile_notif_morning_desc">Tóm tắt nhẹ nhàng về ngày mới khi bạn thức dậy</string>
+    <string name="profile_notif_quiet_title">Giờ yên tĩnh ban đêm (DND)</string>
+    <string name="profile_notif_quiet_desc">Tắt tiếng thông báo không khẩn cấp trong giờ ngủ</string>
+
+    <!-- Sao lưu Dữ liệu -->
+    <string name="profile_backup_title">Sao lưu &amp; Xuất dữ liệu</string>
+    <string name="profile_backup_cloud_title">Đồng bộ đám mây</string>
+    <string name="profile_backup_cloud_desc">Lưu trữ an toàn tùy chọn và lịch trình lên Supabase</string>
+    <string name="profile_backup_sync_now">Đồng bộ ngay</string>
+    <string name="profile_backup_export_title">Xuất bản sao lưu (JSON)</string>
+    <string name="profile_backup_export_desc">Lưu tất cả thói quen và công việc ra tệp JSON</string>
+    <string name="profile_backup_export_btn">Xuất sao lưu</string>
+
+    <!-- Quyền riêng tư & Dữ liệu -->
+    <string name="profile_privacy_title">Quyền riêng tư &amp; Dữ liệu</string>
+    <string name="profile_privacy_permissions_title">Quyền thiết bị</string>
+    <string name="profile_privacy_permissions_desc">Kiểm tra quyền thông báo và báo thức</string>
+    <string name="profile_privacy_open_settings">Mở cài đặt hệ thống</string>
+    <string name="profile_privacy_cache_title">Bộ nhớ &amp; Cache</string>
+    <string name="profile_privacy_cache_desc">Xóa ảnh cache và dữ liệu tạm</string>
+    <string name="profile_privacy_clear_cache_btn">Xóa cache</string>
+    <string name="profile_privacy_danger_title">Vùng nguy hiểm</string>
+    <string name="profile_privacy_delete_account_title">Xóa tài khoản &amp; Dữ liệu</string>
+    <string name="profile_privacy_delete_account_desc">Xóa vĩnh viễn tất cả dữ liệu trên máy và đám mây</string>
+    <string name="profile_privacy_delete_confirm_title">Xóa tài khoản vĩnh viễn?</string>
+    <string name="profile_privacy_delete_confirm_message">Thao tác này sẽ xóa tất cả công việc, thói quen và cài đặt. Hành động này không thể hoàn tác.</string>
+    <string name="profile_privacy_delete_confirm_btn">Xóa vĩnh viễn</string>
 
     <!-- Màn hình Today -->
     <string name="today_greeting_morning">Chào buổi sáng, %1$s</string>

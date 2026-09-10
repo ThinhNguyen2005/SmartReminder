@@ -17,6 +17,8 @@ import com.smartreminder.domain.repository.ScheduleGroupRepository
 import com.smartreminder.domain.repository.TaskRepository
 import com.smartreminder.domain.repository.UserPreferencesCloudRepository
 import com.smartreminder.domain.repository.UserPreferencesRepository
+import com.smartreminder.data.remote.profile.SupabaseUserProfileRepository
+import com.smartreminder.domain.repository.UserProfileRepository
 import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
 
 /**
@@ -44,6 +46,10 @@ class AppContainer(private val context: Context) {
                 }
             }
         )
+    }
+
+    val userProfileRepository: UserProfileRepository by lazy {
+        SupabaseUserProfileRepository(SupabaseManager.client)
     }
 
     val cueDatabase: CueDatabase by lazy {

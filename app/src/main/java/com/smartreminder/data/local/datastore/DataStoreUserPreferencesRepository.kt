@@ -93,6 +93,20 @@ class DataStoreUserPreferencesRepository(
         }
     }
 
+    override suspend fun updateNotificationPreferences(
+        routineReminders: Boolean,
+        taskReminders: Boolean,
+        morningBriefing: Boolean,
+        quietHours: Boolean
+    ) {
+        dataStore.edit { prefs ->
+            prefs[PreferenceKeys.ROUTINE_REMINDERS] = routineReminders
+            prefs[PreferenceKeys.TASK_REMINDERS] = taskReminders
+            prefs[PreferenceKeys.MORNING_BRIEFING] = morningBriefing
+            prefs[PreferenceKeys.QUIET_HOURS] = quietHours
+        }
+    }
+
     private fun mapToUserPreferences(prefs: Preferences): UserPreferences {
         val defaults = UserPreferences()
         return UserPreferences(
@@ -109,7 +123,15 @@ class DataStoreUserPreferencesRepository(
                 ?: defaults.onboardingCompleted,
             themeMode = prefs[PreferenceKeys.THEME_MODE]
                 ?.let { ThemeMode.fromStorageKey(it) }
-                ?: defaults.themeMode
+                ?: defaults.themeMode,
+            routineRemindersEnabled = prefs[PreferenceKeys.ROUTINE_REMINDERS]
+                ?: defaults.routineRemindersEnabled,
+            taskRemindersEnabled = prefs[PreferenceKeys.TASK_REMINDERS]
+                ?: defaults.taskRemindersEnabled,
+            morningBriefingEnabled = prefs[PreferenceKeys.MORNING_BRIEFING]
+                ?: defaults.morningBriefingEnabled,
+            quietHoursEnabled = prefs[PreferenceKeys.QUIET_HOURS]
+                ?: defaults.quietHoursEnabled
         )
     }
 }

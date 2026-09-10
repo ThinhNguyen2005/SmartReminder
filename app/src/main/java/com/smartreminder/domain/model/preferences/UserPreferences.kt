@@ -11,7 +11,11 @@ data class UserPreferences(
     val sleepTime: LocalTime = DEFAULT_SLEEP_TIME,
     val goals: Set<UserGoal> = DEFAULT_GOALS,
     val onboardingCompleted: Boolean = false,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val routineRemindersEnabled: Boolean = true,
+    val taskRemindersEnabled: Boolean = true,
+    val morningBriefingEnabled: Boolean = true,
+    val quietHoursEnabled: Boolean = true
 ) {
     companion object {
         val DEFAULT_WAKE_TIME: LocalTime = LocalTime.of(7, 0)

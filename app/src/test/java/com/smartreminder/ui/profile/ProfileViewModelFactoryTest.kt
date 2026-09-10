@@ -5,6 +5,8 @@ import com.smartreminder.domain.model.preferences.OnboardingPreferencesSnapshot
 import com.smartreminder.domain.model.preferences.ThemeMode
 import com.smartreminder.domain.model.preferences.UserGoal
 import com.smartreminder.domain.model.preferences.UserPreferences
+import com.smartreminder.domain.model.user.UserProfile
+import com.smartreminder.domain.repository.UserProfileRepository
 import com.smartreminder.domain.repository.UserPreferencesRepository
 import com.smartreminder.domain.sync.RestorePreferencesResult
 import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
@@ -21,7 +23,8 @@ class ProfileViewModelFactoryTest {
     fun `given supported class, when create called, then returns ProfileViewModel instance`() {
         val factory = ProfileViewModelFactory(
             repository = StubUserPreferencesRepository,
-            syncCoordinator = StubUserPreferencesSyncCoordinator
+            syncCoordinator = StubUserPreferencesSyncCoordinator,
+            userProfileRepository = StubUserProfileRepository
         )
 
         val modelClass: Class<out ViewModel> = ProfileViewModel::class.java
@@ -34,7 +37,8 @@ class ProfileViewModelFactoryTest {
     fun `given unsupported class, when create called, then throws IllegalArgumentException`() {
         val factory = ProfileViewModelFactory(
             repository = StubUserPreferencesRepository,
-            syncCoordinator = StubUserPreferencesSyncCoordinator
+            syncCoordinator = StubUserPreferencesSyncCoordinator,
+            userProfileRepository = StubUserProfileRepository
         )
 
         assertThrows(IllegalArgumentException::class.java) {
@@ -54,6 +58,12 @@ private object StubUserPreferencesRepository : UserPreferencesRepository {
     override suspend fun resetOnboarding() = Unit
     override suspend fun replaceOnboardingPreferences(snapshot: OnboardingPreferencesSnapshot) = Unit
     override suspend fun clearOnboardingPreferences() = Unit
+    override suspend fun updateNotificationPreferences(
+        routineReminders: Boolean,
+        taskReminders: Boolean,
+        morningBriefing: Boolean,
+        quietHours: Boolean
+    ) = Unit
 }
 
 private object StubUserPreferencesSyncCoordinator : UserPreferencesSyncCoordinator {
@@ -67,4 +77,11 @@ private object StubUserPreferencesSyncCoordinator : UserPreferencesSyncCoordinat
     ) = Unit
 
     override suspend fun signOutAndClearLocal() = Unit
+
+    override suspend fun forceSync() = Unit
+}
+
+private object StubUserProfileRepository : UserProfileRepository {
+    override suspend fun getCurrentProfile(): UserProfile = UserProfile()
+    override suspend fun updateProfile(displayName: String?, avatarUrl: String?) = Unit
 }

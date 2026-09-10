@@ -355,6 +355,20 @@ private class FakeLocalPreferencesRepository(
             onboardingCompleted = false
         )
     }
+
+    override suspend fun updateNotificationPreferences(
+        routineReminders: Boolean,
+        taskReminders: Boolean,
+        morningBriefing: Boolean,
+        quietHours: Boolean
+    ) {
+        _flow.value = _flow.value.copy(
+            routineRemindersEnabled = routineReminders,
+            taskRemindersEnabled = taskReminders,
+            morningBriefingEnabled = morningBriefing,
+            quietHoursEnabled = quietHours
+        )
+    }
 }
 
 private class FakeCloudPreferencesRepository(

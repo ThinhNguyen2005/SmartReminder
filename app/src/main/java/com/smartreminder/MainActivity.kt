@@ -27,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -237,7 +238,11 @@ fun SmartReminderApp(
                             val profileViewModel: ProfileViewModel = viewModel(
                                 factory = ProfileViewModelFactory(
                                     repository = appContainer.userPreferencesRepository,
-                                    syncCoordinator = appContainer.userPreferencesSyncCoordinator
+                                    syncCoordinator = appContainer.userPreferencesSyncCoordinator,
+                                    userProfileRepository = appContainer.userProfileRepository,
+                                    routineRepository = appContainer.routineRepository,
+                                    taskRepository = appContainer.taskRepository,
+                                    appContext = LocalContext.current.applicationContext
                                 )
                             )
                             ProfileRoute(

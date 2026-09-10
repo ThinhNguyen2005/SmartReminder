@@ -299,6 +299,12 @@ private class FakeUserPreferencesRepository : UserPreferencesRepository {
     override suspend fun resetOnboarding() {}
     override suspend fun replaceOnboardingPreferences(snapshot: OnboardingPreferencesSnapshot) {}
     override suspend fun clearOnboardingPreferences() {}
+    override suspend fun updateNotificationPreferences(
+        routineReminders: Boolean,
+        taskReminders: Boolean,
+        morningBriefing: Boolean,
+        quietHours: Boolean
+    ) {}
 }
 
 private class FakeRoutineRepository : RoutineRepository {

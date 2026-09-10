@@ -55,4 +55,16 @@ interface UserPreferencesRepository {
      * @throws java.io.IOException if write fails
      */
     suspend fun clearOnboardingPreferences()
+
+    /**
+     * Updates notification preference toggles.
+     *
+     * @throws java.io.IOException if write fails
+     */
+    suspend fun updateNotificationPreferences(
+        routineReminders: Boolean,
+        taskReminders: Boolean,
+        morningBriefing: Boolean,
+        quietHours: Boolean
+    )
 }
