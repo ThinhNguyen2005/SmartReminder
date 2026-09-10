@@ -160,6 +160,61 @@
     <string name="profile_notifications_description">Notifications</string>
     <string name="profile_wake_time_dialog_title">Set Wake Up Time</string>
     <string name="profile_sleep_time_dialog_title">Set Sleep Time</string>
+    <string name="profile_theme_picker_title">Select Theme</string>
+    <string name="profile_theme_system">System Default</string>
+    <string name="profile_theme_light">Light</string>
+    <string name="profile_theme_dark">Dark</string>
+    <string name="profile_sync_in_progress">Syncing account...</string>
+    <string name="profile_sync_success">Account synchronized successfully!</string>
+    <string name="profile_sync_failed">Synchronization failed. Please try again.</string>
+    <string name="profile_edit_dialog_title">Edit Profile</string>
+    <string name="profile_edit_name_label">Display Name</string>
+    <string name="profile_edit_name_placeholder">Enter your name</string>
+    <string name="profile_edit_avatar_label">Avatar Image URL</string>
+    <string name="profile_edit_avatar_placeholder">https://example.com/avatar.jpg</string>
+    <string name="profile_edit_change_photo">Tap to change avatar</string>
+    <string name="profile_theme_system_desc">Follows your device system settings</string>
+    <string name="profile_theme_light_desc">Clean and bright daylight appearance</string>
+    <string name="profile_theme_dark_desc">Calm and eye-friendly night appearance</string>
+    <string name="profile_edit_save">Save Changes</string>
+    <string name="profile_edit_cancel">Cancel</string>
+    <string name="profile_edit_saving">Saving...</string>
+    <string name="profile_edit_success">Profile updated successfully!</string>
+
+    <!-- Notification Preferences -->
+    <string name="profile_notification_settings_title">Notification Settings</string>
+    <string name="profile_notif_routine_title">Rhythm &amp; Sleep Reminders</string>
+    <string name="profile_notif_routine_desc">Notify 15 mins before wake-up and bed time</string>
+    <string name="profile_notif_tasks_title">Task &amp; Schedule Alerts</string>
+    <string name="profile_notif_tasks_desc">Alerts for upcoming scheduled tasks</string>
+    <string name="profile_notif_morning_title">Morning Daily Briefing</string>
+    <string name="profile_notif_morning_desc">A gentle overview of your day upon waking up</string>
+    <string name="profile_notif_quiet_title">Night Quiet Hours (DND)</string>
+    <string name="profile_notif_quiet_desc">Silence non-urgent notifications during sleep hours</string>
+
+    <!-- Data Backup -->
+    <string name="profile_backup_title">Data Backup &amp; Export</string>
+    <string name="profile_backup_cloud_title">Cloud Synchronization</string>
+    <string name="profile_backup_cloud_desc">Securely save your preferences and schedule to Supabase</string>
+    <string name="profile_backup_sync_now">Sync Now</string>
+    <string name="profile_backup_export_title">Export Offline Backup (JSON)</string>
+    <string name="profile_backup_export_desc">Save all your routines and tasks to a JSON file</string>
+    <string name="profile_backup_export_btn">Export Backup</string>
+
+    <!-- Privacy & Data Control -->
+    <string name="profile_privacy_title">Privacy &amp; Data Control</string>
+    <string name="profile_privacy_permissions_title">Device Permissions</string>
+    <string name="profile_privacy_permissions_desc">Check notification and alarm permissions</string>
+    <string name="profile_privacy_open_settings">Open System Settings</string>
+    <string name="profile_privacy_cache_title">Storage &amp; Cache</string>
+    <string name="profile_privacy_cache_desc">Clear cached images and temporary data</string>
+    <string name="profile_privacy_clear_cache_btn">Clear Cache</string>
+    <string name="profile_privacy_danger_title">Danger Zone</string>
+    <string name="profile_privacy_delete_account_title">Delete Account &amp; Data</string>
+    <string name="profile_privacy_delete_account_desc">Permanently erase all local and cloud data</string>
+    <string name="profile_privacy_delete_confirm_title">Delete Account Permanently?</string>
+    <string name="profile_privacy_delete_confirm_message">This will wipe all your tasks, routines, and settings. This action cannot be undone.</string>
+    <string name="profile_privacy_delete_confirm_btn">Delete Permanently</string>
 
     <!-- Today Screen -->
     <string name="today_greeting_morning">Good morning, %1$s</string>
