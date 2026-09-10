@@ -58,6 +58,14 @@ class GroupsViewModel(
     private val effectsChannel = Channel<GroupsEffect>(Channel.BUFFERED)
     private val _uiState = MutableStateFlow(GroupsUiState(isRefreshing = true))
 
+    /**
+     * A successful create can precede its cache refresh. Keep the created id as
+     * an explicit navigation intent until a later observation contains it; a
+     * process-restored id has no such grace period and is normalized away when
+     * the loaded cache proves it no longer exists.
+     */
+    private var pendingCreatedGroupId: CollaborationGroupId? = null
+
     private var refreshJob: Job? = null
     private var detailRefreshJob: Job? = null
     private var mutationJob: Job? = null
@@ -132,6 +140,7 @@ class GroupsViewModel(
                 }
                 .collect { observedGroups ->
                     groups.value = observedGroups
+                    reconcilePendingCreatedGroup()
                     normalizeSelectionIfLoaded()
                     render()
                 }
@@ -503,7 +512,9 @@ class GroupsViewModel(
                         if (result is CollaborationMutationResult.Created &&
                             mutation.mutation == GroupsMutation.CREATE_GROUP
                         ) {
+                            pendingCreatedGroupId = result.groupId
                             selectGroup(result.groupId)
+                            reconcilePendingCreatedGroup()
                             effectsChannel.trySend(GroupsEffect.NavigateToDetail(result.groupId))
                         }
                         if (mutation.mutation == GroupsMutation.LEAVE_GROUP ||
@@ -539,9 +550,12 @@ class GroupsViewModel(
 
     private fun selectGroup(groupId: CollaborationGroupId?) {
         if (groupId == null) {
+            pendingCreatedGroupId = null
             ++detailGeneration
             detailRefreshJob?.cancel()
             detailRefreshJob = null
+        } else if (groupId != pendingCreatedGroupId) {
+            pendingCreatedGroupId = null
         }
         selectedGroupId.value = groupId
         savedStateHandle[SELECTED_GROUP_ID_KEY] = groupId?.value
@@ -575,7 +589,17 @@ class GroupsViewModel(
     private fun normalizeSelectionIfLoaded() {
         val selected = selectedGroupId.value ?: return
         if (!refreshCompleted.value) return
+        reconcilePendingCreatedGroup()
+        if (pendingCreatedGroupId == selected) return
         if (groups.value.none { it.id == selected }) selectGroup(null)
+    }
+
+    private fun reconcilePendingCreatedGroup() {
+        val createdId = pendingCreatedGroupId ?: return
+        if (groups.value.any { it.id == createdId }) {
+            pendingCreatedGroupId = null
+            if (error.value == GroupsUiError.NotFound) error.value = null
+        }
     }
 
     private fun render() {
@@ -588,10 +612,7 @@ class GroupsViewModel(
                 group = it,
                 members = members.value,
                 permissionsByMemberId = members.value.associate { member ->
-                    member.userId to (
-                        actorPermissions
-                            ?: GroupPermissionEvaluator.permissionsFor(member.userId, member.role)
-                        )
+                    member.userId to GroupPermissionEvaluator.permissionsFor(member.userId, member.role)
                 },
                 currentUserId = currentUserId,
                 currentUserRole = actorRole,
@@ -623,25 +644,36 @@ class GroupsViewModel(
             )
         }
         val hasCachedData = groups.value.isNotEmpty()
+        val displayedError = if (
+            error.value == null &&
+            !isRefreshing.value &&
+            pendingCreatedGroupId == selectedId &&
+            selectedId != null &&
+            selected == null
+        ) {
+            GroupsUiError.NotFound
+        } else {
+            error.value
+        }
         val loadState = when {
             isRefreshing.value && hasCachedData -> GroupsLoadState.OFFLINE_REFRESHING
             isRefreshing.value -> GroupsLoadState.LOADING
-            error.value != null && !hasCachedData -> GroupsLoadState.ERROR
+            displayedError != null && !hasCachedData -> GroupsLoadState.ERROR
             isOffline.value && hasCachedData -> GroupsLoadState.CACHED_OFFLINE
-            error.value != null -> GroupsLoadState.ERROR
+            displayedError != null -> GroupsLoadState.ERROR
             groups.value.isEmpty() -> GroupsLoadState.EMPTY
             else -> GroupsLoadState.CONTENT
         }
         _uiState.value = GroupsUiState(
             loadState = loadState,
-            screen = if (detail == null) GroupsScreen.LIST else GroupsScreen.DETAIL,
+            screen = if (selectedId == null) GroupsScreen.LIST else GroupsScreen.DETAIL,
             groups = groups.value,
             pendingInvites = invites.value.filter { it.status == GroupInviteStatus.PENDING },
             selectedGroupId = selectedId,
             selectedGroup = detail,
             dialog = dialog.value,
             pendingMutation = pendingMutation.value,
-            error = error.value,
+            error = displayedError,
             isCached = hasCachedData,
             isOffline = isOffline.value,
             isRefreshing = isRefreshing.value

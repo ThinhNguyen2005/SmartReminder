@@ -1,7 +1,18 @@
 package com.smartreminder.ui.groups
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.SAVED_STATE_REGISTRY_OWNER_KEY
+import androidx.lifecycle.VIEW_MODEL_STORE_OWNER_KEY
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.enableSavedStateHandles
+import androidx.lifecycle.viewmodel.MutableCreationExtras
 import androidx.lifecycle.viewmodel.CreationExtras
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
 import com.smartreminder.domain.model.collaboration.CollaborationGroup
 import com.smartreminder.domain.model.collaboration.GroupInvite
 import com.smartreminder.domain.model.collaboration.GroupInviteStatus
@@ -31,12 +42,15 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -192,6 +206,37 @@ class GroupsViewModelTest {
     }
 
     @Test
+    fun `when create succeeds but cache refresh misses the new group, then intent stays in detail error until retry`() = runTest {
+        val createdId = CollaborationGroupId("created-after-refresh-failure")
+        repository.groups = listOf(group("group-1", "Household"))
+        repository.createGroupResult = CollaborationMutationResult.Created(createdId)
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.CreateGroup("Created"))
+        advanceUntilIdle()
+
+        assertEquals(createdId, viewModel.uiState.value.selectedGroupId)
+        assertEquals(GroupsScreen.DETAIL, viewModel.uiState.value.screen)
+        assertEquals(GroupsLoadState.ERROR, viewModel.uiState.value.loadState)
+        assertNull(viewModel.uiState.value.selectedGroup)
+        assertEquals(GroupsUiError.NotFound, viewModel.uiState.value.error)
+        assertEquals(
+            GroupsEffect.NavigateToDetail(createdId),
+            viewModel.effects.filter { it == GroupsEffect.NavigateToDetail(createdId) }.first()
+        )
+
+        repository.groups = listOf(group("group-1", "Household"), group(createdId.value, "Created"))
+        repository.refreshGroupsResult = CollaborationMutationResult.Applied
+        viewModel.onAction(GroupsAction.Refresh)
+        advanceUntilIdle()
+
+        assertEquals(createdId, viewModel.uiState.value.selectedGroupId)
+        assertEquals("Created", viewModel.uiState.value.selectedGroup?.group?.name)
+        assertNull(viewModel.uiState.value.error)
+    }
+
+    @Test
     fun `when detail refresh for group A finishes after group B opens, then stale failure is ignored`() = runTest {
         val groupA = CollaborationGroupId("group-a")
         val groupB = CollaborationGroupId("group-b")
@@ -321,6 +366,10 @@ class GroupsViewModelTest {
         assertEquals(GroupRole.ADMIN, detail.currentUserRole)
         assertTrue(detail.actorPermissions!!.canEditGroup)
         assertFalse(detail.actorPermissions.canChangeRoles)
+        assertTrue(
+            "permissionsByMemberId remains target-role based",
+            detail.permissionsByMemberId[UserId("owner-1")]!!.canDeleteGroup
+        )
         assertFalse(detail.memberActionsByMemberId[UserId("owner-1")]!!.canRemove)
         assertTrue(detail.memberActionsByMemberId[UserId("member-1")]!!.canRemove)
 
@@ -474,6 +523,112 @@ class GroupsViewModelTest {
     }
 
     @Test
+    fun `when leave succeeds, then mutation completion and list navigation effects are emitted`() = runTest {
+        repository.currentUserId = UserId("member-1")
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+        val effects = mutableListOf<GroupsEffect>()
+        val effectsJob = async {
+            viewModel.effects.take(2).toList(effects)
+        }
+
+        viewModel.onAction(GroupsAction.LeaveGroup)
+        advanceUntilIdle()
+        effectsJob.await()
+
+        assertEquals(
+            listOf(
+                GroupsEffect.MutationCompleted(GroupsMutation.LEAVE_GROUP),
+                GroupsEffect.NavigateToList
+            ),
+            effects
+        )
+        assertEquals(GroupsScreen.LIST, viewModel.uiState.value.screen)
+    }
+
+    @Test
+    fun `when mutation returns invalid state, then typed ui error is exposed without completion effect`() = runTest {
+        repository.createGroupResult = CollaborationMutationResult.InvalidState(
+            CollaborationError.InvalidState("stale version")
+        )
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.CreateGroup("Invalid"))
+        advanceUntilIdle()
+
+        assertEquals(GroupsUiError.InvalidState("stale version"), viewModel.uiState.value.error)
+        assertNull(viewModel.uiState.value.pendingMutation)
+    }
+
+    @Test
+    fun `when ViewModelStore clears during refresh, then suspended refresh is cancelled and late result is ignored`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupsCompletion = completion
+        val owner = TestViewModelStoreOwner()
+        val viewModel = ViewModelProvider(
+            owner,
+            GroupsViewModelFactory(repository, SavedStateHandle())
+        )[GroupsViewModel::class.java]
+        advanceUntilIdle()
+
+        owner.viewModelStore.clear()
+        advanceUntilIdle()
+        completion.complete(CollaborationMutationResult.Failure(CollaborationError.Conflict("late")))
+        advanceUntilIdle()
+
+        assertTrue(repository.refreshGroupsCancelled)
+        assertNull(viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun `when ViewModelStore clears during detail refresh, then suspended detail is cancelled`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = completion
+        val owner = TestViewModelStoreOwner()
+        val viewModel = ViewModelProvider(
+            owner,
+            GroupsViewModelFactory(repository, SavedStateHandle())
+        )[GroupsViewModel::class.java]
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+
+        owner.viewModelStore.clear()
+        advanceUntilIdle()
+        completion.complete(CollaborationMutationResult.Conflict(CollaborationError.Conflict("late")))
+        advanceUntilIdle()
+
+        assertTrue(repository.refreshGroupCancelled.contains(CollaborationGroupId("group-1")))
+        assertNull(viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun `when ViewModelStore clears during mutation, then suspended mutation is cancelled without a late effect`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.createGroupCompletion = completion
+        val owner = TestViewModelStoreOwner()
+        val viewModel = ViewModelProvider(
+            owner,
+            GroupsViewModelFactory(repository, SavedStateHandle())
+        )[GroupsViewModel::class.java]
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.CreateGroup("Pending"))
+        advanceUntilIdle()
+
+        owner.viewModelStore.clear()
+        advanceUntilIdle()
+        completion.complete(CollaborationMutationResult.Applied)
+        advanceUntilIdle()
+
+        assertTrue(repository.createGroupCancelled)
+        assertNull(viewModel.uiState.value.pendingMutation)
+        assertNull(viewModel.uiState.value.error)
+    }
+
+    @Test
     fun `when detail is loaded, then permissions are exposed for each member`() = runTest {
         val viewModel = GroupsViewModel(repository)
         advanceUntilIdle()
@@ -564,6 +719,28 @@ class GroupsViewModelFactoryTest {
         assertEquals(CollaborationGroupId("group-1"), viewModel.uiState.value.selectedGroupId)
     }
 
+    @Test
+    fun `when factory receives real saved-state extras, then createSavedStateHandle branch restores selection`() {
+        val owner = TestSavedStateOwner()
+        val extras = MutableCreationExtras().apply {
+            this[SAVED_STATE_REGISTRY_OWNER_KEY] = owner
+            this[VIEW_MODEL_STORE_OWNER_KEY] = owner
+            this[ViewModelProvider.VIEW_MODEL_KEY] = "groups"
+        }
+        owner.seedSavedStateHandle(
+            key = "groups",
+            handle = SavedStateHandle(
+                mapOf(GroupsViewModel.SELECTED_GROUP_ID_KEY to "group-1")
+            )
+        )
+
+        val viewModel = GroupsViewModelFactory(
+            FakeCollaborationRepository(groups = listOf(group("group-1", "Household")))
+        ).create(GroupsViewModel::class.java, extras)
+
+        assertEquals(CollaborationGroupId("group-1"), viewModel.uiState.value.selectedGroupId)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `given unsupported model, when factory creates it, then throws`() {
         GroupsViewModelFactory(FakeCollaborationRepository()).create(UnsupportedViewModel::class.java)
@@ -571,6 +748,47 @@ class GroupsViewModelFactoryTest {
 }
 
 private class UnsupportedViewModel : androidx.lifecycle.ViewModel()
+
+private class TestViewModelStoreOwner : ViewModelStoreOwner {
+    override val viewModelStore: ViewModelStore = ViewModelStore()
+}
+
+private class TestSavedStateOwner : SavedStateRegistryOwner, ViewModelStoreOwner {
+    override val lifecycle: Lifecycle = NoOpLifecycle()
+    override val viewModelStore: ViewModelStore = ViewModelStore()
+    private val controller = SavedStateRegistryController.create(this)
+    override val savedStateRegistry get() = controller.savedStateRegistry
+
+    init {
+        controller.performAttach()
+        controller.performRestore(null)
+        enableSavedStateHandles()
+    }
+
+    fun seedSavedStateHandle(key: String, handle: SavedStateHandle) {
+        // The JVM Android stubs do not implement Bundle.containsKey. Seed the
+        // AndroidX SavedStateHandlesVM so the factory still exercises its real
+        // CreationExtras/createSavedStateHandle branch without a fake factory.
+        val handlesVmClass = Class.forName("androidx.lifecycle.SavedStateHandlesVM")
+        val handlesVm = handlesVmClass.getDeclaredConstructor().apply {
+            isAccessible = true
+        }.newInstance() as androidx.lifecycle.ViewModel
+        viewModelStore.put("androidx.lifecycle.internal.SavedStateHandlesVM", handlesVm)
+        val handlesField = handlesVmClass.getDeclaredField("handles").apply {
+            isAccessible = true
+        }
+        @Suppress("UNCHECKED_CAST")
+        (handlesField.get(handlesVm) as MutableMap<String, SavedStateHandle>)[key] = handle
+    }
+}
+
+private class NoOpLifecycle : Lifecycle() {
+    override fun addObserver(observer: LifecycleObserver) = Unit
+
+    override fun removeObserver(observer: LifecycleObserver) = Unit
+
+    override val currentState: State = State.INITIALIZED
+}
 
 private class FakeCollaborationRepository(
     groups: List<CollaborationGroup> = emptyList(),
@@ -600,10 +818,13 @@ private class FakeCollaborationRepository(
     var refreshGroupsResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var refreshGroupsCompletion: CompletableDeferred<CollaborationMutationResult>? = null
     var refreshGroupsFailure: Throwable? = null
+    var refreshGroupsCancelled: Boolean = false
     var createGroupCompletion: CompletableDeferred<CollaborationMutationResult>? = null
     var createGroupResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var cancelCreateGroup: Boolean = false
+    var createGroupCancelled: Boolean = false
     val refreshGroupCompletions = mutableMapOf<CollaborationGroupId, CompletableDeferred<CollaborationMutationResult>>()
+    val refreshGroupCancelled = mutableSetOf<CollaborationGroupId>()
     var refreshGroupsCalls: Int = 0
         private set
     var createGroupCommand: CreateGroupCommand? = null
@@ -628,11 +849,20 @@ private class FakeCollaborationRepository(
     override suspend fun refreshGroups(): CollaborationMutationResult {
         refreshGroupsCalls += 1
         refreshGroupsFailure?.let { throw it }
-        return refreshGroupsCompletion?.await() ?: refreshGroupsResult
+        return try {
+            refreshGroupsCompletion?.await() ?: refreshGroupsResult
+        } catch (cancelled: CancellationException) {
+            refreshGroupsCancelled = true
+            throw cancelled
+        }
     }
 
-    override suspend fun refreshGroup(groupId: CollaborationGroupId): CollaborationMutationResult =
+    override suspend fun refreshGroup(groupId: CollaborationGroupId): CollaborationMutationResult = try {
         refreshGroupCompletions[groupId]?.await() ?: CollaborationMutationResult.Applied
+    } catch (cancelled: CancellationException) {
+        refreshGroupCancelled += groupId
+        throw cancelled
+    }
 
     override suspend fun refreshInvites() = CollaborationMutationResult.Applied
 
@@ -640,7 +870,12 @@ private class FakeCollaborationRepository(
         createGroupCommand = command
         mutationCalls += "create:${command.name}"
         if (cancelCreateGroup) throw CancellationException("cancelled")
-        return createGroupCompletion?.await() ?: createGroupResult
+        return try {
+            createGroupCompletion?.await() ?: createGroupResult
+        } catch (cancelled: CancellationException) {
+            createGroupCancelled = true
+            throw cancelled
+        }
     }
 
     override suspend fun updateGroup(command: UpdateGroupCommand): CollaborationMutationResult {
