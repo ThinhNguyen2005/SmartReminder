@@ -39,6 +39,14 @@ class SupabaseCollaborationRemoteDataSource private constructor(
         }
     )
 
+    /** Provider-backed constructor keeps missing configuration out of app startup. */
+    constructor(supabaseProvider: () -> SupabaseClient) : this(
+        supabaseProvider = supabaseProvider,
+        rpcInvoker = CollaborationRpcInvoker { function, parameters ->
+            supabaseProvider().postgrest.rpc(function, parameters).decodeAs()
+        }
+    )
+
     constructor(rpcInvoker: CollaborationRpcInvoker) : this(
         supabaseProvider = null,
         rpcInvoker = rpcInvoker
@@ -154,6 +162,6 @@ class SupabaseCollaborationRemoteDataSource private constructor(
         const val DELETE_GROUP_RPC = "delete_collaboration_group"
 
         fun configured(): SupabaseCollaborationRemoteDataSource =
-            SupabaseCollaborationRemoteDataSource(SupabaseManager.client)
+            SupabaseCollaborationRemoteDataSource { SupabaseManager.client }
     }
 }

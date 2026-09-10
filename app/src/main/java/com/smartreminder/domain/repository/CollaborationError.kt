@@ -20,6 +20,7 @@ sealed interface CollaborationError {
     }
 
     data class NetworkUnavailable(val cause: Throwable? = null) : CollaborationError
+    data object ConfigurationMissing : CollaborationError
     data object NotAuthorized : CollaborationError
     data object NotFound : CollaborationError
     data class Conflict(val message: String? = null) : CollaborationError

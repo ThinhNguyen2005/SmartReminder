@@ -4,6 +4,7 @@ import com.smartreminder.data.remote.collaboration.CollaborationMutationEnvelope
 import com.smartreminder.data.remote.collaboration.CollaborationMappingException
 import com.smartreminder.data.remote.collaboration.CollaborationRemoteDataSource
 import com.smartreminder.data.remote.collaboration.CollaborationRemoteMapper
+import com.smartreminder.data.remote.MissingSupabaseConfigurationException
 import com.smartreminder.domain.model.collaboration.CollaborationGroup
 import com.smartreminder.domain.model.collaboration.GroupInvite
 import com.smartreminder.domain.model.collaboration.GroupMember
@@ -231,6 +232,7 @@ class DefaultCollaborationRepository(
 
     private fun networkFailure(failure: Exception): CollaborationMutationResult {
         val error = when (failure) {
+            is MissingSupabaseConfigurationException -> CollaborationError.ConfigurationMissing
             is CollaborationMappingException,
             is SerializationException -> CollaborationError.MappingFailure(
                 message = failure.message ?: "Invalid collaboration response",

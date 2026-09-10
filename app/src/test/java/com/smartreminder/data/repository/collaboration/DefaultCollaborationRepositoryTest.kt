@@ -4,6 +4,7 @@ import com.smartreminder.data.local.room.entity.collaboration.CachedCollaboratio
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupInviteEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupMemberEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskEntity
+import com.smartreminder.data.remote.MissingSupabaseConfigurationException
 import com.smartreminder.data.remote.collaboration.CollaborationErrorRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationGroupRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationInviteRemoteDto
@@ -36,6 +37,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DefaultCollaborationRepositoryTest {
+
+    @Test
+    fun `missing Supabase configuration is a typed feature error`() = runTest {
+        val repository = DefaultCollaborationRepository(
+            cache = FakeCollaborationCache(),
+            remote = FakeCollaborationRemoteDataSource().apply {
+                groupsFailure = MissingSupabaseConfigurationException("missing")
+            },
+            network = { true }
+        )
+
+        assertEquals(
+            CollaborationMutationResult.Failure(CollaborationError.ConfigurationMissing),
+            repository.refreshGroups()
+        )
+    }
 
     @Test
     fun `observations are cache first`() = runTest {

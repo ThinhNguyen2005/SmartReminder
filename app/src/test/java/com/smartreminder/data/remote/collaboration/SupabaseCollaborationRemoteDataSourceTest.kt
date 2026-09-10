@@ -1,5 +1,6 @@
 package com.smartreminder.data.remote.collaboration
 
+import com.smartreminder.data.remote.MissingSupabaseConfigurationException
 import com.smartreminder.domain.model.collaboration.GroupRole
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
 import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
@@ -22,9 +23,25 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class SupabaseCollaborationRemoteDataSourceTest {
+
+    @Test
+    fun `provider-backed remote defers missing configuration until feature access`() {
+        var providerCalls = 0
+        val remote = SupabaseCollaborationRemoteDataSource {
+            providerCalls += 1
+            throw MissingSupabaseConfigurationException("missing")
+        }
+
+        assertEquals(0, providerCalls)
+        assertThrows(MissingSupabaseConfigurationException::class.java) {
+            runTest { remote.fetchGroups() }
+        }
+        assertEquals(1, providerCalls)
+    }
 
     @Test
     fun `all membership mutations use exact RPC names and parameters`() = runTest {

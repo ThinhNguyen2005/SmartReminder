@@ -53,6 +53,7 @@ import com.smartreminder.ui.schedules.SchedulesViewModelFactory
 import com.smartreminder.ui.schedules.editor.UuidRoutineEditorIdGenerator
 import com.smartreminder.ui.calendar.CalendarPlaceholderScreen
 import com.smartreminder.ui.groups.GroupsPlaceholderScreen
+import com.smartreminder.ui.groups.GroupsViewModel
 import com.smartreminder.ui.theme.SmartReminderTheme
 import com.smartreminder.ui.today.TodayPlaceholderScreen
 import java.time.Clock
@@ -203,9 +204,14 @@ fun SmartReminderApp(
                             )
                         }
                     }
-                    AppDestination.GROUPS -> GroupsPlaceholderScreen(
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    AppDestination.GROUPS -> {
+                        if (appContainer != null) {
+                            viewModel<GroupsViewModel>(factory = appContainer.groupsViewModelFactory)
+                        }
+                        GroupsPlaceholderScreen(
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
                     AppDestination.PROFILE -> {
                         if (appContainer != null) {
                             val profileViewModel: ProfileViewModel = viewModel(
