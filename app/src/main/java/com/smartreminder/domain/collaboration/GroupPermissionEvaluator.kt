@@ -47,4 +47,27 @@ object GroupPermissionEvaluator {
             GroupRole.MEMBER -> false
         }
     }
+
+    /** Only the current owner may change a non-owner member to ADMIN or MEMBER. */
+    fun canChangeMemberRole(
+        actorRole: GroupRole,
+        targetRole: GroupRole,
+        newRole: GroupRole
+    ): Boolean {
+        return actorRole == GroupRole.OWNER &&
+            targetRole != GroupRole.OWNER &&
+            (newRole == GroupRole.ADMIN || newRole == GroupRole.MEMBER)
+    }
+
+    /** Ownership is transferred atomically to an already accepted non-owner member. */
+    fun canTransferOwnership(actorRole: GroupRole, targetRole: GroupRole): Boolean {
+        return actorRole == GroupRole.OWNER && targetRole != GroupRole.OWNER
+    }
+
+    /** An owner must transfer ownership first; a non-owner may leave. */
+    fun canLeaveGroup(actorRole: GroupRole, isLastMember: Boolean): Boolean {
+        return actorRole != GroupRole.OWNER
+    }
+
+    fun canDeleteGroup(actorRole: GroupRole): Boolean = actorRole == GroupRole.OWNER
 }

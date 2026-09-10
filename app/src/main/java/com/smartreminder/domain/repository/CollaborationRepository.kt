@@ -3,8 +3,10 @@ package com.smartreminder.domain.repository
 import com.smartreminder.domain.model.collaboration.CollaborationGroup
 import com.smartreminder.domain.model.collaboration.GroupInvite
 import com.smartreminder.domain.model.collaboration.GroupMember
+import com.smartreminder.domain.model.collaboration.GroupRole
 import com.smartreminder.domain.model.collaboration.GroupTask
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
+import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
 import com.smartreminder.domain.model.collaboration.ids.GroupTaskId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import kotlinx.coroutines.flow.Flow
@@ -48,6 +50,64 @@ interface CollaborationRepository {
     fun observeMembers(groupId: CollaborationGroupId): Flow<List<GroupMember>>
     fun observeTasks(groupId: CollaborationGroupId): Flow<List<GroupTask>>
     fun observeInvites(): Flow<List<GroupInvite>>
+
+    suspend fun refreshGroups(): CollaborationMutationResult
+    suspend fun refreshGroup(groupId: CollaborationGroupId): CollaborationMutationResult
+    suspend fun refreshInvites(): CollaborationMutationResult
+
+    suspend fun createGroup(command: CreateGroupCommand): CollaborationMutationResult
+    suspend fun updateGroup(command: UpdateGroupCommand): CollaborationMutationResult
+    suspend fun inviteMember(command: InviteMemberCommand): CollaborationMutationResult
+    suspend fun acceptInvite(inviteId: GroupInviteId): CollaborationMutationResult
+    suspend fun declineInvite(inviteId: GroupInviteId): CollaborationMutationResult
+    suspend fun changeMemberRole(command: ChangeMemberRoleCommand): CollaborationMutationResult
+    suspend fun removeMember(command: RemoveMemberCommand): CollaborationMutationResult
+    suspend fun transferOwnership(command: TransferOwnershipCommand): CollaborationMutationResult
+    suspend fun leaveGroup(groupId: CollaborationGroupId): CollaborationMutationResult
+    suspend fun deleteGroup(groupId: CollaborationGroupId): CollaborationMutationResult
+
+    suspend fun createGroup(name: String, description: String? = null): CollaborationMutationResult =
+        createGroup(CreateGroupCommand(name, description))
+
+    suspend fun updateGroup(
+        groupId: CollaborationGroupId,
+        name: String,
+        description: String? = null
+    ): CollaborationMutationResult = updateGroup(UpdateGroupCommand(groupId, name, description))
+
+    suspend fun inviteMember(
+        groupId: CollaborationGroupId,
+        email: String
+    ): CollaborationMutationResult = inviteMember(InviteMemberCommand(groupId, email))
+
+    suspend fun acceptInvite(command: AcceptInviteCommand): CollaborationMutationResult =
+        acceptInvite(command.inviteId)
+
+    suspend fun declineInvite(command: DeclineInviteCommand): CollaborationMutationResult =
+        declineInvite(command.inviteId)
+
+    suspend fun changeMemberRole(
+        groupId: CollaborationGroupId,
+        memberId: UserId,
+        targetRole: GroupRole
+    ): CollaborationMutationResult =
+        changeMemberRole(ChangeMemberRoleCommand(groupId, memberId, targetRole))
+
+    suspend fun removeMember(
+        groupId: CollaborationGroupId,
+        memberId: UserId
+    ): CollaborationMutationResult = removeMember(RemoveMemberCommand(groupId, memberId))
+
+    suspend fun transferOwnership(
+        groupId: CollaborationGroupId,
+        newOwnerId: UserId
+    ): CollaborationMutationResult = transferOwnership(TransferOwnershipCommand(groupId, newOwnerId))
+
+    suspend fun leaveGroup(command: LeaveGroupCommand): CollaborationMutationResult =
+        leaveGroup(command.groupId)
+
+    suspend fun deleteGroup(command: DeleteGroupCommand): CollaborationMutationResult =
+        deleteGroup(command.groupId)
 
     suspend fun createTask(command: CreateGroupTaskCommand): CollaborationMutationResult
     suspend fun startTask(taskId: GroupTaskId): CollaborationMutationResult

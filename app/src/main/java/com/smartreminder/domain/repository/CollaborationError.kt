@@ -1,6 +1,24 @@
 package com.smartreminder.domain.repository
 
 sealed interface CollaborationError {
+    companion object {
+        fun fromEnvelope(envelope: CollaborationErrorEnvelope): CollaborationError =
+            when (envelope.code) {
+                CollaborationErrorCode.NETWORK_UNAVAILABLE -> NetworkUnavailable()
+                CollaborationErrorCode.NOT_AUTHORIZED -> NotAuthorized
+                CollaborationErrorCode.NOT_FOUND -> NotFound
+                CollaborationErrorCode.CONFLICT -> Conflict(envelope.detail)
+                CollaborationErrorCode.INVALID_STATE -> InvalidState(envelope.detail)
+                CollaborationErrorCode.VALIDATION ->
+                    Validation(envelope.detail ?: "Validation failed")
+                CollaborationErrorCode.MEMBER_NOT_FOUND -> MemberNotFound
+                CollaborationErrorCode.INVITE_ALREADY_PENDING -> InviteAlreadyPending
+                CollaborationErrorCode.ALREADY_MEMBER -> AlreadyMember
+                CollaborationErrorCode.SYNC_REJECTED -> SyncRejected(envelope.detail)
+                CollaborationErrorCode.UNKNOWN -> Unknown()
+            }
+    }
+
     data class NetworkUnavailable(val cause: Throwable? = null) : CollaborationError
     data object NotAuthorized : CollaborationError
     data object NotFound : CollaborationError
