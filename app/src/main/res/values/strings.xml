@@ -162,4 +162,36 @@
     <string name="profile_notifications_description">Notifications</string>
     <string name="profile_wake_time_dialog_title">Set Wake Up Time</string>
     <string name="profile_sleep_time_dialog_title">Set Sleep Time</string>
+
+    <!-- Groups Preview UI (static G1 foundation preview) -->
+    <string name="groups_preview_title">Android Project</string>
+    <string name="groups_preview_static_note">Preview only — actions are not connected yet.</string>
+    <string name="groups_preview_settings_description">Group settings (preview only)</string>
+    <string name="groups_preview_assignment_title">New assignment</string>
+    <string name="groups_preview_assignment_time">Just now</string>
+    <string name="groups_preview_assignment_message">Minh assigned you a task: %1$s</string>
+    <string name="groups_preview_assignment_task">Build the login screen</string>
+    <string name="groups_preview_invite">Invite</string>
+    <string name="groups_preview_member_avatar_description">Avatar for %1$s</string>
+    <string name="groups_preview_member_minh">Minh</string>
+    <string name="groups_preview_member_you">You</string>
+    <string name="groups_preview_member_lan">Lan</string>
+    <string name="groups_preview_member_khoa">Khoa</string>
+    <string name="groups_preview_member_initials_minh">M</string>
+    <string name="groups_preview_member_initials_you">Y</string>
+    <string name="groups_preview_member_initials_lan">L</string>
+    <string name="groups_preview_member_initials_khoa">K</string>
+    <string name="groups_preview_task_list_title">Task list</string>
+    <string name="groups_preview_filter_description">Filter tasks (preview only)</string>
+    <string name="groups_preview_task_database">Design the database</string>
+    <string name="groups_preview_task_login">Build the login UI</string>
+    <string name="groups_preview_task_presentation">Prepare the presentation</string>
+    <string name="groups_preview_due_aug_20">Aug 20</string>
+    <string name="groups_preview_due_tomorrow">Tomorrow · Aug 21</string>
+    <string name="groups_preview_due_aug_23">Aug 23</string>
+    <string name="groups_preview_add_task">Add new task</string>
+    <plurals name="groups_preview_members_count">
+        <item quantity="one">%1$d member</item>
+        <item quantity="other">%1$d members</item>
+    </plurals>
 </resources>

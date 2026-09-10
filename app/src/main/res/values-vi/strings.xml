@@ -161,4 +161,35 @@
     <string name="profile_notifications_description">Thông báo</string>
     <string name="profile_wake_time_dialog_title">Chọn giờ thức dậy</string>
     <string name="profile_sleep_time_dialog_title">Chọn giờ đi ngủ</string>
+
+    <!-- Màn hình xem trước Groups (tĩnh, nền tảng G1) -->
+    <string name="groups_preview_title">Dự án Android</string>
+    <string name="groups_preview_static_note">Bản xem trước — thao tác chưa được kết nối.</string>
+    <string name="groups_preview_settings_description">Cài đặt nhóm (chỉ xem trước)</string>
+    <string name="groups_preview_assignment_title">Phân công mới</string>
+    <string name="groups_preview_assignment_time">Vừa xong</string>
+    <string name="groups_preview_assignment_message">Minh đã giao cho bạn: %1$s</string>
+    <string name="groups_preview_assignment_task">Làm màn hình đăng nhập</string>
+    <string name="groups_preview_invite">Mời</string>
+    <string name="groups_preview_member_avatar_description">Ảnh đại diện của %1$s</string>
+    <string name="groups_preview_member_minh">Minh</string>
+    <string name="groups_preview_member_you">Bạn</string>
+    <string name="groups_preview_member_lan">Lan</string>
+    <string name="groups_preview_member_khoa">Khoa</string>
+    <string name="groups_preview_member_initials_minh">M</string>
+    <string name="groups_preview_member_initials_you">B</string>
+    <string name="groups_preview_member_initials_lan">L</string>
+    <string name="groups_preview_member_initials_khoa">K</string>
+    <string name="groups_preview_task_list_title">Danh sách công việc</string>
+    <string name="groups_preview_filter_description">Lọc công việc (chỉ xem trước)</string>
+    <string name="groups_preview_task_database">Thiết kế cơ sở dữ liệu</string>
+    <string name="groups_preview_task_login">Làm giao diện đăng nhập</string>
+    <string name="groups_preview_task_presentation">Chuẩn bị bài thuyết trình</string>
+    <string name="groups_preview_due_aug_20">20/08</string>
+    <string name="groups_preview_due_tomorrow">Ngày mai · 21/08</string>
+    <string name="groups_preview_due_aug_23">23/08</string>
+    <string name="groups_preview_add_task">Thêm công việc mới</string>
+    <plurals name="groups_preview_members_count">
+        <item quantity="other">%1$d thành viên</item>
+    </plurals>
 </resources>
