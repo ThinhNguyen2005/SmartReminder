@@ -23,6 +23,15 @@ enum class GroupsLoadState {
     OFFLINE_REFRESHING
 }
 
+enum class GroupsDetailLoadState {
+    IDLE,
+    LOADING,
+    CONTENT,
+    ERROR,
+    CACHED_OFFLINE,
+    OFFLINE_REFRESHING
+}
+
 sealed interface GroupsUiError {
     data object MissingConfiguration : GroupsUiError
     data object Offline : GroupsUiError
@@ -112,7 +121,9 @@ data class GroupsUiState(
     val error: GroupsUiError? = null,
     val isCached: Boolean = false,
     val isOffline: Boolean = false,
-    val isRefreshing: Boolean = false
+    val isRefreshing: Boolean = false,
+    val detailLoadState: GroupsDetailLoadState = GroupsDetailLoadState.IDLE,
+    val detailError: GroupsUiError? = null
 ) {
     val isLoading: Boolean
         get() = loadState == GroupsLoadState.LOADING

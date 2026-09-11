@@ -230,6 +230,7 @@
     <string name="groups_confirm_delete_message">Nhóm sẽ bị xóa vĩnh viễn với tất cả thành viên.</string>
     <string name="groups_confirm_invite_accept_message">Chấp nhận lời mời này?</string>
     <string name="groups_confirm_invite_decline_message">Từ chối lời mời này?</string>
+    <string name="groups_invite_response_choose_message">Chọn chấp nhận hoặc từ chối lời mời này.</string>
 
     <string name="groups_error_missing_config">Nhóm chưa khả dụng vì dịch vụ chưa được cấu hình.</string>
     <string name="groups_error_offline">Bạn đang ngoại tuyến. Hãy thử lại khi có kết nối.</string>
@@ -238,6 +239,7 @@
     <string name="groups_error_member_not_found">Thành viên này không còn khả dụng.</string>
     <string name="groups_error_already_member">Bạn đã là thành viên của nhóm này.</string>
     <string name="groups_error_invite_pending">Lời mời đã được gửi và đang chờ.</string>
+    <string name="groups_error_invalid_input">Hãy kiểm tra các trường được đánh dấu rồi thử lại.</string>
     <string name="groups_error_validation">%1$s</string>
     <string name="groups_error_conflict">Nhóm đã thay đổi ở nơi khác. Hãy làm mới rồi thử lại.</string>
     <string name="groups_error_invalid_state">Thao tác này không còn khả dụng.</string>

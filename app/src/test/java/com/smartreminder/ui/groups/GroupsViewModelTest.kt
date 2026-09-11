@@ -57,6 +57,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -686,6 +687,94 @@ class GroupsViewModelTest {
         val detail = viewModel.uiState.value.selectedGroup
         assertNotNull(detail)
         assertTrue(detail!!.permissionsByMemberId[UserId("owner-1")]!!.canDeleteGroup)
+    }
+
+    @Test
+    fun `when detail refresh is delayed without cached members, then loading state hides actions until members arrive`() = runTest {
+        repository.members = emptyList()
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = completion
+
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+
+        assertEquals(GroupsDetailLoadState.LOADING, viewModel.uiState.value.detailLoadState)
+        assertNull(viewModel.uiState.value.selectedGroup?.actorPermissions)
+
+        completion.complete(CollaborationMutationResult.Applied)
+        advanceUntilIdle()
+
+        assertEquals(GroupsDetailLoadState.CONTENT, viewModel.uiState.value.detailLoadState)
+    }
+
+    @Test
+    fun `when cached detail refresh goes offline, then cached members and retryable error remain`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = completion
+
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        runCurrent()
+        assertEquals(GroupsDetailLoadState.OFFLINE_REFRESHING, viewModel.uiState.value.detailLoadState)
+        assertEquals(2, viewModel.uiState.value.selectedGroup?.members?.size)
+
+        completion.complete(CollaborationMutationResult.NetworkRequired)
+        advanceUntilIdle()
+
+        assertEquals(GroupsDetailLoadState.CACHED_OFFLINE, viewModel.uiState.value.detailLoadState)
+        assertEquals(GroupsUiError.Offline, viewModel.uiState.value.detailError)
+        assertEquals(2, viewModel.uiState.value.selectedGroup?.members?.size)
+    }
+
+    @Test
+    fun `when cached detail refresh fails, then typed detail error remains retryable`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = completion
+
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        runCurrent()
+
+        completion.complete(CollaborationMutationResult.Failure(CollaborationError.Conflict("stale")))
+        advanceUntilIdle()
+
+        assertEquals(GroupsDetailLoadState.CACHED_OFFLINE, viewModel.uiState.value.detailLoadState)
+        assertEquals(GroupsUiError.Conflict("stale"), viewModel.uiState.value.detailError)
+        assertEquals(2, viewModel.uiState.value.selectedGroup?.members?.size)
+    }
+
+    @Test
+    fun `when create validation fails, then dialog keeps localized error until input or dismissal clears it`() = runTest {
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenCreateGroupDialog)
+
+        viewModel.onAction(GroupsAction.CreateGroup("", null))
+
+        assertTrue(viewModel.uiState.value.error is GroupsUiError.Validation)
+        assertEquals(GroupsDialog.CreateGroup, viewModel.uiState.value.dialog)
+
+        viewModel.onAction(GroupsAction.DismissError)
+        assertNull(viewModel.uiState.value.error)
+        viewModel.onAction(GroupsAction.DismissDialog)
+        assertNull(viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun `when invite email validation fails, then active invite dialog exposes a typed error`() = runTest {
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenInviteMemberDialog)
+
+        viewModel.onAction(GroupsAction.InviteMember("not-an-email"))
+
+        assertTrue(viewModel.uiState.value.error is GroupsUiError.Validation)
+        assertEquals(GroupsDialog.InviteMember(CollaborationGroupId("group-1")), viewModel.uiState.value.dialog)
     }
 
     @Test

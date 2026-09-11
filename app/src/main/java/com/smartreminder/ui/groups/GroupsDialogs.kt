@@ -1,7 +1,7 @@
 package com.smartreminder.ui.groups
 
 import androidx.annotation.StringRes
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import com.smartreminder.R
@@ -50,7 +52,9 @@ fun GroupsDialogHost(
             initialName = "",
             initialDescription = "",
             pending = uiState.isMutationInProgress,
+            error = uiState.error,
             onDismiss = { onAction(GroupsAction.DismissDialog) },
+            onInputChanged = { onAction(GroupsAction.DismissError) },
             onConfirm = { name, description ->
                 onAction(GroupsAction.CreateGroup(name, description))
             }
@@ -66,7 +70,9 @@ fun GroupsDialogHost(
                     initialName = group.name,
                     initialDescription = group.description.orEmpty(),
                     pending = uiState.isMutationInProgress,
+                    error = uiState.error,
                     onDismiss = { onAction(GroupsAction.DismissDialog) },
+                    onInputChanged = { onAction(GroupsAction.DismissError) },
                     onConfirm = { name, description ->
                         onAction(GroupsAction.UpdateGroup(name, description))
                     }
@@ -76,7 +82,9 @@ fun GroupsDialogHost(
         is GroupsDialog.InviteMember -> InviteMemberDialog(
             dialogKey = dialog,
             pending = uiState.isMutationInProgress,
+            error = uiState.error,
             onDismiss = { onAction(GroupsAction.DismissDialog) },
+            onInputChanged = { onAction(GroupsAction.DismissError) },
             onConfirm = { email -> onAction(GroupsAction.InviteMember(email)) }
         )
         is GroupsDialog.ChangeMemberRole -> {
@@ -87,7 +95,9 @@ fun GroupsDialogHost(
                     dialogKey = dialog,
                     member = member,
                     pending = uiState.isMutationInProgress,
+                    error = uiState.error,
                     onDismiss = { onAction(GroupsAction.DismissDialog) },
+                    onInputChanged = { onAction(GroupsAction.DismissError) },
                     onConfirm = { role ->
                         onAction(GroupsAction.ChangeMemberRole(member.userId, role))
                     }
@@ -101,6 +111,7 @@ fun GroupsDialogHost(
                     titleRes = R.string.groups_remove_dialog_title,
                     messageRes = R.string.groups_confirm_remove_message,
                     pending = uiState.isMutationInProgress,
+                    error = uiState.error,
                     onDismiss = { onAction(GroupsAction.DismissDialog) },
                     onConfirm = { onAction(GroupsAction.RemoveMember(member.userId)) }
                 )
@@ -113,6 +124,7 @@ fun GroupsDialogHost(
                     titleRes = R.string.groups_transfer_dialog_title,
                     messageRes = R.string.groups_confirm_transfer_message,
                     pending = uiState.isMutationInProgress,
+                    error = uiState.error,
                     onDismiss = { onAction(GroupsAction.DismissDialog) },
                     onConfirm = { onAction(GroupsAction.TransferOwnership(member.userId)) }
                 )
@@ -122,6 +134,7 @@ fun GroupsDialogHost(
             titleRes = R.string.groups_leave_dialog_title,
             messageRes = R.string.groups_confirm_leave_message,
             pending = uiState.isMutationInProgress,
+            error = uiState.error,
             onDismiss = { onAction(GroupsAction.DismissDialog) },
             onConfirm = { onAction(GroupsAction.LeaveGroup) }
         )
@@ -129,6 +142,7 @@ fun GroupsDialogHost(
             titleRes = R.string.groups_delete_dialog_title,
             messageRes = R.string.groups_confirm_delete_message,
             pending = uiState.isMutationInProgress,
+            error = uiState.error,
             onDismiss = { onAction(GroupsAction.DismissDialog) },
             onConfirm = { onAction(GroupsAction.DeleteGroup) }
         )
@@ -136,8 +150,11 @@ fun GroupsDialogHost(
             val invite = uiState.pendingInvites.firstOrNull { it.id == dialog.inviteId }
             if (invite != null) {
                 InviteResponseDialog(
+                    dialogKey = dialog,
                     pending = uiState.isMutationInProgress,
+                    error = uiState.error,
                     onDismiss = { onAction(GroupsAction.DismissDialog) },
+                    onChoiceChanged = { onAction(GroupsAction.DismissError) },
                     onAccept = { onAction(GroupsAction.AcceptInvite(invite.id)) },
                     onDecline = { onAction(GroupsAction.DeclineInvite(invite.id)) }
                 )
@@ -155,7 +172,9 @@ private fun GroupEditorDialog(
     initialName: String,
     initialDescription: String,
     pending: Boolean,
+    error: GroupsUiError?,
     onDismiss: () -> Unit,
+    onInputChanged: () -> Unit,
     onConfirm: (String, String?) -> Unit
 ) {
     var name by remember(dialogKey) { mutableStateOf(initialName) }
@@ -167,20 +186,28 @@ private fun GroupEditorDialog(
             Column(verticalArrangement = Arrangement.spacedBy(CueSpacing.Md)) {
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = {
+                        onInputChanged()
+                        name = it
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(text = stringResource(R.string.groups_group_name)) },
                     singleLine = false,
-                    enabled = !pending
+                    enabled = !pending,
+                    isError = error != null
                 )
                 OutlinedTextField(
                     value = description,
-                    onValueChange = { description = it },
+                    onValueChange = {
+                        onInputChanged()
+                        description = it
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(text = stringResource(R.string.groups_group_description)) },
                     minLines = 2,
                     enabled = !pending
                 )
+                DialogError(error)
             }
         },
         confirmButton = {
@@ -219,7 +246,9 @@ private fun GroupEditorDialog(
 private fun InviteMemberDialog(
     dialogKey: Any,
     pending: Boolean,
+    error: GroupsUiError?,
     onDismiss: () -> Unit,
+    onInputChanged: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
     var email by remember(dialogKey) { mutableStateOf("") }
@@ -227,14 +256,21 @@ private fun InviteMemberDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = stringResource(R.string.groups_invite_member_dialog_title)) },
         text = {
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(text = stringResource(R.string.groups_invite_email)) },
-                singleLine = false,
-                enabled = !pending
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(CueSpacing.Md)) {
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = {
+                        onInputChanged()
+                        email = it
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(text = stringResource(R.string.groups_invite_email)) },
+                    singleLine = false,
+                    enabled = !pending,
+                    isError = error != null
+                )
+                DialogError(error)
+            }
         },
         confirmButton = {
             Button(
@@ -271,7 +307,9 @@ private fun ChangeMemberRoleDialog(
     dialogKey: Any,
     member: GroupMember,
     pending: Boolean,
+    error: GroupsUiError?,
     onDismiss: () -> Unit,
+    onInputChanged: () -> Unit,
     onConfirm: (GroupRole) -> Unit
 ) {
     val initialRole = if (member.role == GroupRole.ADMIN) GroupRole.MEMBER else GroupRole.ADMIN
@@ -291,9 +329,13 @@ private fun ChangeMemberRoleDialog(
                         role = role,
                         selected = selectedRole == role,
                         enabled = !pending,
-                        onSelected = { selectedRole = role }
+                        onSelected = {
+                            onInputChanged()
+                            selectedRole = role
+                        }
                     )
                 }
+                DialogError(error)
             }
         },
         confirmButton = {
@@ -329,7 +371,12 @@ private fun RoleOption(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = CueSpacing.Xxxl)
-            .clickable(enabled = enabled, onClick = onSelected)
+            .selectable(
+                selected = selected,
+                enabled = enabled,
+                role = Role.RadioButton,
+                onClick = onSelected
+            )
             .semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -344,13 +391,19 @@ private fun DestructiveGroupDialog(
     @StringRes titleRes: Int,
     @StringRes messageRes: Int,
     pending: Boolean,
+    error: GroupsUiError?,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = stringResource(titleRes)) },
-        text = { Text(text = stringResource(messageRes)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(CueSpacing.Md)) {
+                Text(text = stringResource(messageRes))
+                DialogError(error)
+            }
+        },
         confirmButton = {
             Button(
                 onClick = onConfirm,
@@ -387,45 +440,136 @@ private fun DestructiveGroupDialog(
 
 @Composable
 private fun InviteResponseDialog(
+    dialogKey: Any,
     pending: Boolean,
+    error: GroupsUiError?,
     onDismiss: () -> Unit,
+    onChoiceChanged: () -> Unit,
     onAccept: () -> Unit,
     onDecline: () -> Unit
 ) {
+    var choice by remember(dialogKey) { mutableStateOf<InviteResponseChoice?>(null) }
+    val isConfirming = choice != null
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (isConfirming) {
+                choice = null
+            } else {
+                onDismiss()
+            }
+        },
         title = { Text(text = stringResource(R.string.groups_invite_response_dialog_title)) },
         text = {
-            Text(text = stringResource(R.string.groups_confirm_invite_accept_message))
+            Column(verticalArrangement = Arrangement.spacedBy(CueSpacing.Md)) {
+                Text(
+                    text = when (choice) {
+                        InviteResponseChoice.ACCEPT -> stringResource(
+                            R.string.groups_confirm_invite_accept_message
+                        )
+                        InviteResponseChoice.DECLINE -> stringResource(
+                            R.string.groups_confirm_invite_decline_message
+                        )
+                        null -> stringResource(R.string.groups_invite_response_choose_message)
+                    }
+                )
+                DialogError(error)
+            }
         },
         confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(CueSpacing.Sm)) {
-                Button(
-                    onClick = onAccept,
-                    enabled = !pending,
-                    modifier = Modifier.heightIn(min = CueSpacing.Xxxl),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(CueSpacing.Lg)
-                ) {
-                    Text(text = stringResource(R.string.groups_accept_invite))
-                }
-                TextButton(
-                    onClick = onDecline,
-                    enabled = !pending,
-                    modifier = Modifier.heightIn(min = CueSpacing.Xxxl)
-                ) {
-                    Text(text = stringResource(R.string.groups_decline_invite))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(CueSpacing.Sm)
+            ) {
+                if (choice == null) {
+                    Button(
+                        onClick = {
+                            onChoiceChanged()
+                            choice = InviteResponseChoice.ACCEPT
+                        },
+                        enabled = !pending,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = CueSpacing.Xxxl),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(CueSpacing.Lg)
+                    ) {
+                        Text(text = stringResource(R.string.groups_accept_invite))
+                    }
+                    TextButton(
+                        onClick = {
+                            onChoiceChanged()
+                            choice = InviteResponseChoice.DECLINE
+                        },
+                        enabled = !pending,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = CueSpacing.Xxxl)
+                    ) {
+                        Text(text = stringResource(R.string.groups_decline_invite))
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            if (choice == InviteResponseChoice.ACCEPT) onAccept() else onDecline()
+                        },
+                        enabled = !pending,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = CueSpacing.Xxxl),
+                        colors = if (choice == InviteResponseChoice.DECLINE) {
+                            ButtonDefaults.buttonColors(
+                                containerColor = CueTheme.colors.error,
+                                contentColor = CueTheme.colors.onCta
+                            )
+                        } else {
+                            ButtonDefaults.buttonColors()
+                        },
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(CueSpacing.Lg)
+                    ) {
+                        Text(
+                            text = stringResource(
+                                if (choice == InviteResponseChoice.ACCEPT) {
+                                    R.string.groups_accept_invite
+                                } else {
+                                    R.string.groups_decline_invite
+                                }
+                            )
+                        )
+                    }
                 }
             }
         },
         dismissButton = {
             TextButton(
-                onClick = onDismiss,
+                onClick = {
+                    if (isConfirming) choice = null else onDismiss()
+                },
                 enabled = !pending,
                 modifier = Modifier.heightIn(min = CueSpacing.Xxxl)
             ) {
                 Text(text = stringResource(R.string.groups_cancel))
             }
         }
+    )
+}
+
+private enum class InviteResponseChoice {
+    ACCEPT,
+    DECLINE
+}
+
+@Composable
+private fun DialogError(uiError: GroupsUiError?) {
+    if (uiError == null) return
+    val message = groupsErrorMessage(uiError)
+    Text(
+        text = message,
+        color = CueTheme.colors.error,
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                error(message)
+            }
     )
 }
 

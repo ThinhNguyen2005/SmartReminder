@@ -48,6 +48,15 @@ class GroupsViewModel(
     private val invites = MutableStateFlow(emptyList<GroupInvite>())
     private val members = MutableStateFlow(emptyList<GroupMember>())
     private val selectedGroupId = MutableStateFlow(restoredGroupId())
+    private val memberCacheByGroupId = mutableMapOf<CollaborationGroupId, List<GroupMember>>()
+    private val detailLoadState = MutableStateFlow(
+        if (selectedGroupId.value == null) {
+            GroupsDetailLoadState.IDLE
+        } else {
+            GroupsDetailLoadState.LOADING
+        }
+    )
+    private val detailError = MutableStateFlow<GroupsUiError?>(null)
     private val currentUserId = repository.currentUserId()
     private val pendingMutation = MutableStateFlow<PendingGroupsMutation?>(null)
     private val dialog = MutableStateFlow<GroupsDialog?>(null)
@@ -164,9 +173,25 @@ class GroupsViewModel(
                 .flatMapLatest { groupId ->
                     groupId?.let(repository::observeMembers) ?: flowOf(emptyList())
                 }
-                .catch { throwable -> setError(mapThrowable(throwable)) }
+                .catch { throwable ->
+                    if (selectedGroupId.value != null) {
+                        setDetailError(mapThrowable(throwable))
+                    } else {
+                        setError(mapThrowable(throwable))
+                    }
+                }
                 .collect { observedMembers ->
                     members.value = observedMembers
+                    selectedGroupId.value?.let { groupId ->
+                        memberCacheByGroupId[groupId] = observedMembers
+                        if (observedMembers.isNotEmpty() && detailLoadState.value == GroupsDetailLoadState.LOADING) {
+                            detailLoadState.value = if (detailRefreshJob?.isActive == true) {
+                                GroupsDetailLoadState.OFFLINE_REFRESHING
+                            } else {
+                                GroupsDetailLoadState.CONTENT
+                            }
+                        }
+                    }
                     render()
                 }
         }
@@ -250,20 +275,25 @@ class GroupsViewModel(
                 when (result) {
                     CollaborationMutationResult.Applied,
                     is CollaborationMutationResult.Created,
-                    CollaborationMutationResult.Queued -> Unit
-                    CollaborationMutationResult.NetworkRequired -> {
-                        applyError(CollaborationError.NetworkUnavailable())
+                    CollaborationMutationResult.Queued -> {
+                        detailError.value = null
+                        detailLoadState.value = GroupsDetailLoadState.CONTENT
+                        isOffline.value = false
+                        render()
                     }
-                    is CollaborationMutationResult.Failure -> applyError(result.error)
-                    is CollaborationMutationResult.Conflict -> applyError(result.error)
-                    is CollaborationMutationResult.NotAuthorized -> applyError(result.error)
-                    is CollaborationMutationResult.InvalidState -> applyError(result.error)
+                    CollaborationMutationResult.NetworkRequired -> {
+                        applyDetailError(CollaborationError.NetworkUnavailable())
+                    }
+                    is CollaborationMutationResult.Failure -> applyDetailError(result.error)
+                    is CollaborationMutationResult.Conflict -> applyDetailError(result.error)
+                    is CollaborationMutationResult.NotAuthorized -> applyDetailError(result.error)
+                    is CollaborationMutationResult.InvalidState -> applyDetailError(result.error)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (throwable: Exception) {
                 if (requestGeneration == detailGeneration && selectedGroupId.value == groupId) {
-                    setError(mapThrowable(throwable))
+                    setDetailError(mapThrowable(throwable))
                 }
             } finally {
                 if (requestGeneration == detailGeneration) detailRefreshJob = null
@@ -366,7 +396,7 @@ class GroupsViewModel(
         val command = try {
             CreateGroupCommand(action.name, action.description)
         } catch (validation: IllegalArgumentException) {
-            setError(GroupsUiError.Validation(validation.message ?: "Invalid group"))
+            setError(GroupsUiError.Validation(validation.message.orEmpty()))
             return
         }
         mutate(PendingGroupsMutation(GroupsMutation.CREATE_GROUP)) {
@@ -380,7 +410,7 @@ class GroupsViewModel(
         val command = try {
             UpdateGroupCommand(groupId, action.name, action.description)
         } catch (validation: IllegalArgumentException) {
-            setError(GroupsUiError.Validation(validation.message ?: "Invalid group"))
+            setError(GroupsUiError.Validation(validation.message.orEmpty()))
             return
         }
         mutate(PendingGroupsMutation(GroupsMutation.UPDATE_GROUP, groupId)) {
@@ -394,7 +424,7 @@ class GroupsViewModel(
         val command = try {
             InviteMemberCommand(groupId, action.email)
         } catch (validation: IllegalArgumentException) {
-            setError(GroupsUiError.Validation(validation.message ?: "Invalid email"))
+            setError(GroupsUiError.Validation(validation.message.orEmpty()))
             return
         }
         mutate(PendingGroupsMutation(GroupsMutation.INVITE_MEMBER, groupId)) {
@@ -424,7 +454,7 @@ class GroupsViewModel(
         val command = try {
             ChangeMemberRoleCommand(groupId, action.memberId, action.targetRole)
         } catch (validation: IllegalArgumentException) {
-            setError(GroupsUiError.Validation(validation.message ?: "Invalid role"))
+            setError(GroupsUiError.Validation(validation.message.orEmpty()))
             return
         }
         mutate(PendingGroupsMutation(GroupsMutation.CHANGE_MEMBER_ROLE, groupId, action.memberId)) {
@@ -559,7 +589,19 @@ class GroupsViewModel(
         }
         selectedGroupId.value = groupId
         savedStateHandle[SELECTED_GROUP_ID_KEY] = groupId?.value
-        members.value = emptyList()
+        if (groupId == null) {
+            members.value = emptyList()
+            detailLoadState.value = GroupsDetailLoadState.IDLE
+            detailError.value = null
+        } else {
+            members.value = memberCacheByGroupId[groupId].orEmpty()
+            detailError.value = null
+            detailLoadState.value = if (members.value.isEmpty()) {
+                GroupsDetailLoadState.LOADING
+            } else {
+                GroupsDetailLoadState.OFFLINE_REFRESHING
+            }
+        }
         render()
     }
 
@@ -567,12 +609,14 @@ class GroupsViewModel(
         if (selectedGroupId.value == null) return
         selectGroup(null)
         dialog.value = null
+        error.value = null
         if (emitEffect) effectsChannel.trySend(GroupsEffect.NavigateToList)
         render()
     }
 
     private fun setDialog(nextDialog: GroupsDialog?) {
         dialog.value = nextDialog
+        if (nextDialog == null) error.value = null
         render()
     }
 
@@ -584,6 +628,21 @@ class GroupsViewModel(
     private fun applyError(domainError: CollaborationError) {
         error.value = mapError(domainError)
         isOffline.value = domainError is CollaborationError.NetworkUnavailable
+    }
+
+    private fun applyDetailError(domainError: CollaborationError) {
+        setDetailError(mapError(domainError))
+        isOffline.value = domainError is CollaborationError.NetworkUnavailable
+    }
+
+    private fun setDetailError(nextError: GroupsUiError?) {
+        detailError.value = nextError
+        detailLoadState.value = if (members.value.isNotEmpty()) {
+            GroupsDetailLoadState.CACHED_OFFLINE
+        } else {
+            GroupsDetailLoadState.ERROR
+        }
+        render()
     }
 
     private fun normalizeSelectionIfLoaded() {
@@ -666,6 +725,7 @@ class GroupsViewModel(
         }
         _uiState.value = GroupsUiState(
             loadState = loadState,
+            detailLoadState = detailLoadState.value,
             screen = if (selectedId == null) GroupsScreen.LIST else GroupsScreen.DETAIL,
             groups = groups.value,
             pendingInvites = invites.value.filter { it.status == GroupInviteStatus.PENDING },
@@ -674,6 +734,7 @@ class GroupsViewModel(
             dialog = dialog.value,
             pendingMutation = pendingMutation.value,
             error = displayedError,
+            detailError = detailError.value,
             isCached = hasCachedData,
             isOffline = isOffline.value,
             isRefreshing = isRefreshing.value

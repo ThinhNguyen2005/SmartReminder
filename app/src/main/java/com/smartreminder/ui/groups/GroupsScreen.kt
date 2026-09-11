@@ -56,6 +56,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -91,30 +92,19 @@ fun GroupsListScreen(
             }
     ) {
         GroupsListHeader(onNewGroup = { onAction(GroupsAction.OpenCreateGroupDialog) })
-
-        when {
-            uiState.loadState == GroupsLoadState.LOADING -> GroupsLoadingState()
-            uiState.loadState == GroupsLoadState.ERROR && uiState.groups.isEmpty() -> {
-                GroupsErrorState(
-                    error = uiState.error,
-                    onRetry = { onAction(GroupsAction.Refresh) }
-                )
-            }
-            else -> GroupsListContent(uiState = uiState, onAction = onAction)
-        }
+        GroupsListContent(uiState = uiState, onAction = onAction)
     }
 }
 
 @Composable
 private fun GroupsListHeader(onNewGroup: () -> Unit) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = CueSpacing.Xl, vertical = CueSpacing.Lg),
-        horizontalArrangement = Arrangement.spacedBy(CueSpacing.Md),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(CueSpacing.Md)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column {
             Text(
                 text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.headlineLarge,
@@ -135,7 +125,9 @@ private fun GroupsListHeader(onNewGroup: () -> Unit) {
         }
         Button(
             onClick = onNewGroup,
-            modifier = Modifier.heightIn(min = CueSpacing.Xxxl),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = CueSpacing.Xxxl),
             shape = RoundedCornerShape(CueSpacing.Lg),
             contentPadding = PaddingValues(horizontal = CueSpacing.Lg, vertical = CueSpacing.Sm)
         ) {
@@ -228,7 +220,25 @@ private fun GroupsListContent(
                 )
             }
         }
-        if (uiState.groups.isEmpty()) {
+        if (uiState.loadState == GroupsLoadState.LOADING && uiState.groups.isEmpty()) {
+            item(key = "groups_loading") {
+                GroupsLoadingState(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 180.dp)
+                )
+            }
+        } else if (uiState.loadState == GroupsLoadState.ERROR && uiState.groups.isEmpty()) {
+            item(key = "groups_error") {
+                GroupsErrorState(
+                    uiError = uiState.error,
+                    onRetry = { onAction(GroupsAction.Refresh) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 220.dp)
+                )
+            }
+        } else if (uiState.groups.isEmpty()) {
             item(key = "groups_empty") {
                 GroupsEmptyState()
             }
@@ -341,7 +351,7 @@ private fun PendingInviteCard(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .semantics(mergeDescendants = true) {
+            .semantics(mergeDescendants = false) {
                 contentDescription = title
             },
         shape = RoundedCornerShape(CueSpacing.Lg),
@@ -387,11 +397,9 @@ private fun PendingInviteCard(
 }
 
 @Composable
-private fun GroupsLoadingState() {
+private fun GroupsLoadingState(modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(CueSpacing.Xl),
+        modifier = modifier.padding(CueSpacing.Xl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -435,13 +443,13 @@ private fun GroupsEmptyState() {
 
 @Composable
 private fun GroupsErrorState(
-    error: GroupsUiError?,
-    onRetry: () -> Unit
+    uiError: GroupsUiError?,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val message = groupsErrorMessage(uiError)
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(CueSpacing.Xl),
+        modifier = modifier.padding(CueSpacing.Xl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(CueSpacing.Md, Alignment.CenterVertically)
     ) {
@@ -457,9 +465,12 @@ private fun GroupsErrorState(
             color = CueTheme.colors.textPrimary
         )
         Text(
-            text = groupsErrorMessage(error),
+            text = message,
             style = MaterialTheme.typography.bodyLarge,
-            color = CueTheme.colors.textSecondary
+            color = CueTheme.colors.textSecondary,
+            modifier = Modifier.semantics {
+                error(message)
+            }
         )
         Button(
             onClick = onRetry,
@@ -478,8 +489,10 @@ private fun GroupsErrorBanner(
     error: GroupsUiError?,
     onRetry: () -> Unit
 ) {
+    val message = groupsErrorMessage(error)
     GroupsStatusBanner(
-        message = groupsErrorMessage(error),
+        message = message,
+        isError = true,
         icon = {
             Icon(
                 imageVector = Icons.Outlined.Warning,
@@ -502,29 +515,43 @@ private fun GroupsErrorBanner(
 private fun GroupsStatusBanner(
     message: String,
     icon: @Composable () -> Unit,
-    action: (@Composable () -> Unit)? = null
+    action: (@Composable () -> Unit)? = null,
+    isError: Boolean = false
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                if (isError) error(message)
+            },
         shape = RoundedCornerShape(CueSpacing.Lg),
         color = CueTheme.colors.surfaceSubtle,
         border = BorderStroke(1.dp, CueTheme.colors.border)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = CueSpacing.Lg, vertical = CueSpacing.Sm),
-            horizontalArrangement = Arrangement.spacedBy(CueSpacing.Sm),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(CueSpacing.Sm)
         ) {
-            icon()
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = CueTheme.colors.textSecondary,
-                modifier = Modifier.weight(1f)
-            )
-            action?.invoke()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(CueSpacing.Sm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                icon()
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = CueTheme.colors.textSecondary,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            action?.let { content ->
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    content()
+                }
+            }
         }
     }
 }
@@ -538,11 +565,12 @@ fun GroupDetailScreen(
     val detail = uiState.selectedGroup
     if (detail == null) {
         if (uiState.loadState == GroupsLoadState.LOADING) {
-            GroupsLoadingState()
+            GroupsLoadingState(modifier = modifier.fillMaxSize())
         } else {
             GroupsErrorState(
-                error = uiState.error ?: GroupsUiError.NotFound,
-                onRetry = { onAction(GroupsAction.Refresh) }
+                uiError = uiState.error ?: GroupsUiError.NotFound,
+                onRetry = { onAction(GroupsAction.Refresh) },
+                modifier = modifier.fillMaxSize()
             )
         }
         return
@@ -577,9 +605,6 @@ fun GroupDetailScreen(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        if (uiState.loadState == GroupsLoadState.OFFLINE_REFRESHING) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
@@ -589,6 +614,49 @@ fun GroupDetailScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(CueSpacing.Lg)
         ) {
+            when (uiState.detailLoadState) {
+                GroupsDetailLoadState.LOADING -> {
+                    item(key = "group_detail_loading") {
+                        GroupsLoadingState(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 160.dp)
+                        )
+                    }
+                }
+                GroupsDetailLoadState.OFFLINE_REFRESHING -> {
+                    item(key = "group_detail_refreshing") {
+                        GroupsStatusBanner(
+                            message = stringResource(R.string.groups_offline_refreshing),
+                            icon = {
+                                LinearProgressIndicator(
+                                    modifier = Modifier.width(CueSpacing.Xl),
+                                    color = CueTheme.colors.accent
+                                )
+                            },
+                            action = {
+                                TextButton(
+                                    onClick = { onAction(GroupsAction.OpenGroup(detail.id)) },
+                                    modifier = Modifier.heightIn(min = CueSpacing.Xxxl)
+                                ) {
+                                    Text(text = stringResource(R.string.groups_retry))
+                                }
+                            }
+                        )
+                    }
+                }
+                GroupsDetailLoadState.ERROR,
+                GroupsDetailLoadState.CACHED_OFFLINE -> {
+                    item(key = "group_detail_error") {
+                        GroupsErrorBanner(
+                            error = uiState.detailError,
+                            onRetry = { onAction(GroupsAction.OpenGroup(detail.id)) }
+                        )
+                    }
+                }
+                GroupsDetailLoadState.IDLE,
+                GroupsDetailLoadState.CONTENT -> Unit
+            }
             item(key = "group_info") {
                 GroupInfoCard(detail = detail, onAction = onAction)
             }
@@ -643,15 +711,16 @@ private fun GroupInfoCard(
                 style = MaterialTheme.typography.bodyLarge,
                 color = CueTheme.colors.textSecondary
             )
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(CueSpacing.Sm),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(CueSpacing.Sm)
             ) {
                 if (actorPermissions?.canEditGroup == true) {
                     OutlinedButton(
                         onClick = { onAction(GroupsAction.OpenUpdateGroupDialog) },
-                        modifier = Modifier.heightIn(min = CueSpacing.Xxxl),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = CueSpacing.Xxxl),
                         contentPadding = PaddingValues(horizontal = CueSpacing.Md)
                     ) {
                         Icon(imageVector = Icons.Outlined.Edit, contentDescription = null)
@@ -662,7 +731,9 @@ private fun GroupInfoCard(
                 if (actorPermissions?.canInviteMember == true) {
                     Button(
                         onClick = { onAction(GroupsAction.OpenInviteMemberDialog) },
-                        modifier = Modifier.heightIn(min = CueSpacing.Xxxl),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = CueSpacing.Xxxl),
                         contentPadding = PaddingValues(horizontal = CueSpacing.Md),
                         shape = RoundedCornerShape(CueSpacing.Lg)
                     ) {
@@ -672,15 +743,16 @@ private fun GroupInfoCard(
                     }
                 }
             }
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(CueSpacing.Sm),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(CueSpacing.Sm)
             ) {
                 if (detail.canLeaveGroup) {
                     TextButton(
                         onClick = { onAction(GroupsAction.OpenLeaveGroupDialog) },
-                        modifier = Modifier.heightIn(min = CueSpacing.Xxxl)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = CueSpacing.Xxxl)
                     ) {
                         Icon(imageVector = Icons.AutoMirrored.Outlined.ExitToApp, contentDescription = null)
                         Spacer(modifier = Modifier.width(CueSpacing.Xs))
@@ -690,7 +762,9 @@ private fun GroupInfoCard(
                 if (actorPermissions?.canDeleteGroup == true) {
                     TextButton(
                         onClick = { onAction(GroupsAction.OpenDeleteGroupDialog) },
-                        modifier = Modifier.heightIn(min = CueSpacing.Xxxl),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = CueSpacing.Xxxl),
                         colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                             contentColor = CueTheme.colors.error
                         )
@@ -721,7 +795,7 @@ private fun GroupMemberRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .semantics(mergeDescendants = true) {
+            .semantics(mergeDescendants = false) {
                 contentDescription = name
                 stateDescription = roleDescription
             },
@@ -924,7 +998,7 @@ fun GroupTaskLockedSection(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun groupsErrorMessage(error: GroupsUiError?): String = when (error) {
+internal fun groupsErrorMessage(error: GroupsUiError?): String = when (error) {
     GroupsUiError.MissingConfiguration -> stringResource(R.string.groups_error_missing_config)
     GroupsUiError.Offline -> stringResource(R.string.groups_error_offline)
     GroupsUiError.NotAuthorized -> stringResource(R.string.groups_error_not_authorized)
@@ -932,7 +1006,11 @@ private fun groupsErrorMessage(error: GroupsUiError?): String = when (error) {
     GroupsUiError.MemberNotFound -> stringResource(R.string.groups_error_member_not_found)
     GroupsUiError.AlreadyMember -> stringResource(R.string.groups_error_already_member)
     GroupsUiError.InviteAlreadyPending -> stringResource(R.string.groups_error_invite_pending)
-    is GroupsUiError.Validation -> stringResource(R.string.groups_error_validation, error.message)
+    is GroupsUiError.Validation -> if (error.message.isBlank()) {
+        stringResource(R.string.groups_error_invalid_input)
+    } else {
+        stringResource(R.string.groups_error_validation, error.message)
+    }
     is GroupsUiError.Conflict -> stringResource(R.string.groups_error_conflict)
     is GroupsUiError.InvalidState -> stringResource(R.string.groups_error_invalid_state)
     is GroupsUiError.MappingFailure -> stringResource(R.string.groups_error_mapping)

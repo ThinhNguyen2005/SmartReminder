@@ -231,6 +231,7 @@
     <string name="groups_confirm_delete_message">This permanently deletes the group for all members.</string>
     <string name="groups_confirm_invite_accept_message">Accept this invitation?</string>
     <string name="groups_confirm_invite_decline_message">Decline this invitation?</string>
+    <string name="groups_invite_response_choose_message">Choose whether to accept or decline this invitation.</string>
 
     <string name="groups_error_missing_config">Groups are unavailable until the service is configured.</string>
     <string name="groups_error_offline">You’re offline. Try again when you have a connection.</string>
@@ -239,6 +240,7 @@
     <string name="groups_error_member_not_found">That member is no longer available.</string>
     <string name="groups_error_already_member">You are already a member of this group.</string>
     <string name="groups_error_invite_pending">An invitation is already pending.</string>
+    <string name="groups_error_invalid_input">Check the highlighted fields and try again.</string>
     <string name="groups_error_validation">%1$s</string>
     <string name="groups_error_conflict">This group changed elsewhere. Refresh and try again.</string>
     <string name="groups_error_invalid_state">That action is no longer available.</string>

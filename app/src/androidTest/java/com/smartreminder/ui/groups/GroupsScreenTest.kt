@@ -8,19 +8,29 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.unit.Density
 import com.smartreminder.R
 import com.smartreminder.domain.collaboration.GroupPermissions
 import com.smartreminder.domain.model.collaboration.CollaborationGroup
+import com.smartreminder.domain.model.collaboration.GroupInvite
+import com.smartreminder.domain.model.collaboration.GroupInviteStatus
 import com.smartreminder.domain.model.collaboration.GroupMember
 import com.smartreminder.domain.model.collaboration.GroupRole
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
+import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import com.smartreminder.ui.theme.SmartReminderTheme
 import java.time.Instant
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -167,6 +177,283 @@ class GroupsScreenTest {
         )
     }
 
+    @Test
+    fun pendingInviteRemainsActionableWhileGroupsAreLoading() {
+        val invite = invite("invite-1", "group-1")
+        val actions = mutableListOf<GroupsAction>()
+
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupsListScreen(
+                    uiState = GroupsUiState(
+                        loadState = GroupsLoadState.LOADING,
+                        pendingInvites = listOf(invite)
+                    ),
+                    onAction = { action -> actions += action }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(
+                R.string.groups_invite_unknown_group,
+                invite.groupId.value
+            )
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_review_invite))
+            .performClick()
+        assertTrue(actions.contains(GroupsAction.OpenInviteResponseDialog(invite.id)))
+
+    }
+
+    @Test
+    fun pendingInviteRemainsActionableWhenGroupsFailed() {
+        val invite = invite("invite-1", "group-1")
+        val actions = mutableListOf<GroupsAction>()
+
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupsListScreen(
+                    uiState = GroupsUiState(
+                        loadState = GroupsLoadState.ERROR,
+                        error = GroupsUiError.Offline,
+                        pendingInvites = listOf(invite)
+                    ),
+                    onAction = { action -> actions += action }
+                )
+            }
+        }
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_review_invite))
+            .performClick()
+        assertTrue(actions.contains(GroupsAction.OpenInviteResponseDialog(invite.id)))
+    }
+
+    @Test
+    fun detailErrorShowsRetryAndKeepsCachedMemberContent() {
+        val group = group("group-1", "Household")
+        val actor = member(group.id.value, "owner-1", GroupRole.OWNER, avatarUrl = null)
+        val actions = mutableListOf<GroupsAction>()
+        val state = detailState(
+            group = group,
+            members = listOf(actor),
+            detailLoadState = GroupsDetailLoadState.CACHED_OFFLINE,
+            detailError = GroupsUiError.Offline
+        )
+
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupDetailScreen(uiState = state, onAction = { actions += it })
+            }
+        }
+
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_error_offline))
+            .assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_retry))
+            .performClick()
+        assertEquals(listOf(GroupsAction.OpenGroup(group.id)), actions)
+        composeRule.onNodeWithText("A").assertIsDisplayed()
+    }
+
+    @Test
+    fun roleOptionsExposeMergedRadioButtonAndSelectedSemantics() {
+        val group = group("group-1", "Household")
+        val target = member(group.id.value, "member-1", GroupRole.MEMBER)
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupsDialogHost(
+                    dialog = GroupsDialog.ChangeMemberRole(group.id, target.userId),
+                    uiState = GroupsUiState(
+                        dialog = GroupsDialog.ChangeMemberRole(group.id, target.userId),
+                        selectedGroup = detailState(group, listOf(target)).selectedGroup
+                    ),
+                    onAction = {}
+                )
+            }
+        }
+
+        val adminNode = composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_role_admin)
+        ).fetchSemanticsNode()
+        assertEquals(Role.RadioButton, adminNode.config[SemanticsProperties.Role])
+        assertEquals(true, adminNode.config[SemanticsProperties.Selected])
+    }
+
+    @Test
+    fun inviteResponseUsesSeparateAcceptConfirmationState() {
+        val invite = invite("invite-1", "group-1")
+        val actions = mutableListOf<GroupsAction>()
+
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupsDialogHost(
+                    dialog = GroupsDialog.RespondToInvite(invite.id),
+                    uiState = GroupsUiState(
+                        dialog = GroupsDialog.RespondToInvite(invite.id),
+                        pendingInvites = listOf(invite)
+                    ),
+                    onAction = { actions += it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_accept_invite))
+            .performClick()
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_confirm_invite_accept_message)
+        ).assertIsDisplayed()
+        assertFalse(actions.any { it == GroupsAction.AcceptInvite(invite.id) })
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_accept_invite))
+            .performClick()
+        assertTrue(actions.contains(GroupsAction.AcceptInvite(invite.id)))
+    }
+
+    @Test
+    fun inviteResponseUsesSeparateDeclineConfirmationState() {
+        val invite = invite("invite-1", "group-1")
+        val actions = mutableListOf<GroupsAction>()
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupsDialogHost(
+                    dialog = GroupsDialog.RespondToInvite(invite.id),
+                    uiState = GroupsUiState(
+                        dialog = GroupsDialog.RespondToInvite(invite.id),
+                        pendingInvites = listOf(invite)
+                    ),
+                    onAction = { actions += it }
+                )
+            }
+        }
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_decline_invite))
+            .performClick()
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_confirm_invite_decline_message)
+        ).assertIsDisplayed()
+        assertFalse(actions.any { it == GroupsAction.DeclineInvite(invite.id) })
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_decline_invite))
+            .performClick()
+        assertTrue(actions.contains(GroupsAction.DeclineInvite(invite.id)))
+    }
+
+    @Test
+    fun validationErrorIsVisibleAndMarkedAsSemanticsErrorInsideDialog() {
+        val actions = mutableListOf<GroupsAction>()
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupsDialogHost(
+                    dialog = GroupsDialog.CreateGroup,
+                    uiState = GroupsUiState(
+                        dialog = GroupsDialog.CreateGroup,
+                        error = GroupsUiError.Validation("Enter a name")
+                    ),
+                    onAction = { actions += it }
+                )
+            }
+        }
+
+        val errorNode = composeRule.onNodeWithText("Enter a name").assertIsDisplayed()
+            .fetchSemanticsNode()
+        assertEquals("Enter a name", errorNode.config[SemanticsProperties.Error])
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_group_name))
+            .performTextInput("A name")
+        assertTrue(actions.contains(GroupsAction.DismissError))
+    }
+
+    @Test
+    fun serverMutationErrorIsVisibleInsideActiveDialogWithErrorSemantics() {
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupsDialogHost(
+                    dialog = GroupsDialog.InviteMember(CollaborationGroupId("group-1")),
+                    uiState = GroupsUiState(
+                        dialog = GroupsDialog.InviteMember(CollaborationGroupId("group-1")),
+                        error = GroupsUiError.NotAuthorized
+                    ),
+                    onAction = {}
+                )
+            }
+        }
+
+        val errorMessage = composeRule.activity.getString(R.string.groups_error_not_authorized)
+        val errorNode = composeRule.onNodeWithText(errorMessage).assertIsDisplayed()
+            .fetchSemanticsNode()
+        assertEquals(errorMessage, errorNode.config[SemanticsProperties.Error])
+    }
+
+    @Test
+    fun memberActionControlRemainsIndependentlyAccessible() {
+        val group = group("group-1", "Household")
+        val actor = member(group.id.value, "owner-1", GroupRole.OWNER)
+        val target = member(group.id.value, "member-1", GroupRole.MEMBER)
+        val actions = mutableListOf<GroupsAction>()
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupDetailScreen(
+                    uiState = detailState(group, listOf(actor, target)),
+                    onAction = { actions += it }
+                )
+            }
+        }
+
+        val memberActionsDescription = composeRule.activity.getString(
+            R.string.groups_member_actions_description,
+            "Member"
+        )
+        composeRule.onNodeWithContentDescription(memberActionsDescription).performClick()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_change_role))
+            .performClick()
+        assertTrue(
+            actions.contains(GroupsAction.OpenChangeMemberRoleDialog(target.userId))
+        )
+    }
+
+    @Test
+    fun actionRowsRemainVisibleAtTwoHundredPercentFontScaleInLightAndDarkThemes() {
+        val group = group("group-1", "Household")
+        val actor = member(group.id.value, "owner-1", GroupRole.OWNER)
+        val state = detailState(group, listOf(actor))
+        val expectedActions = listOf(
+            R.string.groups_edit_group,
+            R.string.groups_invite_member,
+            R.string.groups_leave_group,
+            R.string.groups_delete_group
+        ).map(composeRule.activity::getString)
+
+        val darkTheme = mutableStateOf(false)
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
+                SmartReminderTheme(darkTheme = darkTheme.value) {
+                    GroupDetailScreen(uiState = state, onAction = {})
+                }
+            }
+        }
+        expectedActions.forEach { label ->
+            composeRule.onNodeWithText(label).assertIsDisplayed()
+        }
+        composeRule.runOnIdle { darkTheme.value = true }
+        expectedActions.forEach { label ->
+            composeRule.onNodeWithText(label).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun detailBackButtonDispatchesTypedBackAction() {
+        val group = group("group-1", "Household")
+        val actions = mutableListOf<GroupsAction>()
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupDetailScreen(
+                    uiState = detailState(group, listOf(member(group.id.value, "owner-1", GroupRole.OWNER))),
+                    onAction = { actions += it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription(
+            composeRule.activity.getString(R.string.groups_detail_back_description)
+        ).performClick()
+        assertEquals(listOf(GroupsAction.Back), actions)
+    }
+
     private fun group(id: String, name: String): CollaborationGroup = CollaborationGroup(
         id = CollaborationGroupId(id),
         name = name,
@@ -176,11 +463,75 @@ class GroupsScreenTest {
         updatedAt = Instant.parse("2026-01-01T00:00:00Z")
     )
 
-    private fun member(groupId: String, userId: String, role: GroupRole): GroupMember = GroupMember(
+    private fun member(
+        groupId: String,
+        userId: String,
+        role: GroupRole,
+        avatarUrl: String? = null
+    ): GroupMember = GroupMember(
         groupId = CollaborationGroupId(groupId),
         userId = UserId(userId),
         role = role,
         joinedAt = Instant.parse("2026-01-01T00:00:00Z"),
-        displayName = "Member"
+        displayName = if (userId == "owner-1") "Ari" else "Member",
+        avatarUrl = avatarUrl
     )
+
+    private fun invite(id: String, groupId: String): GroupInvite = GroupInvite(
+        id = GroupInviteId(id),
+        groupId = CollaborationGroupId(groupId),
+        inviterId = UserId("owner-1"),
+        inviteeUserId = UserId("member-1"),
+        status = GroupInviteStatus.PENDING,
+        createdAt = Instant.parse("2026-01-01T00:00:00Z")
+    )
+
+    private fun detailState(
+        group: CollaborationGroup,
+        members: List<GroupMember>,
+        detailLoadState: GroupsDetailLoadState = GroupsDetailLoadState.CONTENT,
+        detailError: GroupsUiError? = null
+    ): GroupsUiState {
+        val actor = members.firstOrNull { it.userId == UserId("owner-1") }
+        val actorPermissions = actor?.let {
+            GroupPermissions(
+                canEditGroup = true,
+                canInviteMember = true,
+                canChangeRoles = true,
+                canTransferOwnership = true,
+                canDeleteGroup = true
+            )
+        }
+        return GroupsUiState(
+            loadState = GroupsLoadState.CONTENT,
+            detailLoadState = detailLoadState,
+            screen = GroupsScreen.DETAIL,
+            selectedGroupId = group.id,
+            selectedGroup = GroupDetailUiModel(
+                group = group,
+                members = members,
+                permissionsByMemberId = members.associate {
+                    it.userId to GroupPermissions(
+                        canEditGroup = false,
+                        canInviteMember = false,
+                        canChangeRoles = false,
+                        canTransferOwnership = false,
+                        canDeleteGroup = false
+                    )
+                },
+                currentUserId = actor?.userId,
+                currentUserRole = actor?.role,
+                actorPermissions = actorPermissions,
+                memberActionsByMemberId = members.associate {
+                    it.userId to GroupMemberUiPermissions(
+                        canChangeRole = true,
+                        canRemove = true,
+                        canTransferOwnership = true
+                    )
+                },
+                canLeaveGroup = actor != null
+            ),
+            detailError = detailError
+        )
+    }
 }
