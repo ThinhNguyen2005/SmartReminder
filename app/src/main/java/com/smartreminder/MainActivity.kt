@@ -31,8 +31,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.smartreminder.di.AppContainer
 import com.smartreminder.domain.model.preferences.ThemeMode
+import com.smartreminder.domain.repository.RoutineRepository
+import com.smartreminder.domain.repository.ScheduleGroupRepository
 import com.smartreminder.ui.app.AppState
 import com.smartreminder.ui.app.AppViewModel
 import com.smartreminder.ui.app.AppViewModelFactory
@@ -42,12 +43,9 @@ import com.smartreminder.ui.onboarding.OnboardingRoute
 import com.smartreminder.ui.onboarding.OnboardingViewModel
 import com.smartreminder.ui.onboarding.OnboardingViewModelFactory
 import com.smartreminder.ui.profile.ProfileRoute
-import com.smartreminder.ui.profile.ProfileScreen
-import com.smartreminder.ui.profile.ProfileUiState
 import com.smartreminder.ui.profile.ProfileViewModel
 import com.smartreminder.ui.profile.ProfileViewModelFactory
 import com.smartreminder.ui.schedules.SchedulesHost
-import com.smartreminder.ui.schedules.SchedulesRoute
 import com.smartreminder.ui.schedules.SchedulesViewModel
 import com.smartreminder.ui.schedules.SchedulesViewModelFactory
 import com.smartreminder.ui.schedules.editor.UuidRoutineEditorIdGenerator
@@ -140,10 +138,16 @@ class MainActivity : ComponentActivity() {
                             val groupsViewModel: GroupsViewModel = viewModel(
                                 factory = appContainer.groupsViewModelFactory
                             )
+                            val profileViewModelFactory = ProfileViewModelFactory(
+                                repository = appContainer.userPreferencesRepository,
+                                syncCoordinator = appContainer.userPreferencesSyncCoordinator
+                            )
                             SmartReminderApp(
                                 schedulesViewModel = schedulesViewModel,
-                                appContainer = appContainer,
-                                groupsViewModel = groupsViewModel
+                                scheduleGroupRepository = appContainer.scheduleGroupRepository,
+                                routineRepository = appContainer.routineRepository,
+                                groupsViewModel = groupsViewModel,
+                                profileViewModelFactory = profileViewModelFactory
                             )
                         }
                     }
@@ -156,8 +160,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SmartReminderApp(
     schedulesViewModel: SchedulesViewModel,
+    scheduleGroupRepository: ScheduleGroupRepository,
+    routineRepository: RoutineRepository,
     groupsViewModel: GroupsViewModel,
-    appContainer: AppContainer? = null
+    profileViewModelFactory: ProfileViewModelFactory
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.TODAY) }
     val destinationStateHolder = rememberSaveableStateHolder()
@@ -189,25 +195,15 @@ fun SmartReminderApp(
                         modifier = Modifier.padding(innerPadding)
                     )
                     AppDestination.SCHEDULES -> {
-                        if (appContainer != null) {
-                            SchedulesHost(
-                                schedulesViewModel = schedulesViewModel,
-                                scheduleGroupRepository = appContainer.scheduleGroupRepository,
-                                routineRepository = appContainer.routineRepository,
-                                idGenerator = UuidRoutineEditorIdGenerator,
-                                clock = Clock.systemUTC(),
-                                onManageGroups = {},
-                                modifier = Modifier.padding(innerPadding)
-                            )
-                        } else {
-                            SchedulesRoute(
-                                viewModel = schedulesViewModel,
-                                onOpenRoutine = {},
-                                onCreateRoutine = {},
-                                onManageGroups = {},
-                                modifier = Modifier.padding(innerPadding)
-                            )
-                        }
+                        SchedulesHost(
+                            schedulesViewModel = schedulesViewModel,
+                            scheduleGroupRepository = scheduleGroupRepository,
+                            routineRepository = routineRepository,
+                            idGenerator = UuidRoutineEditorIdGenerator,
+                            clock = Clock.systemUTC(),
+                            onManageGroups = {},
+                            modifier = Modifier.padding(innerPadding)
+                        )
                     }
                     AppDestination.GROUPS -> {
                         GroupsRoute(
@@ -216,31 +212,13 @@ fun SmartReminderApp(
                         )
                     }
                     AppDestination.PROFILE -> {
-                        if (appContainer != null) {
-                            val profileViewModel: ProfileViewModel = viewModel(
-                                factory = ProfileViewModelFactory(
-                                    repository = appContainer.userPreferencesRepository,
-                                    syncCoordinator = appContainer.userPreferencesSyncCoordinator
-                                )
-                            )
-                            ProfileRoute(
-                                viewModel = profileViewModel,
-                                modifier = Modifier.padding(innerPadding)
-                            )
-                        } else {
-                            ProfileScreen(
-                                uiState = ProfileUiState.Loaded(
-                                    displayName = "Alex",
-                                    email = "alex@email.com",
-                                    avatarUrl = null,
-                                    wakeUpTime = java.time.LocalTime.of(6, 30),
-                                    sleepTime = java.time.LocalTime.of(22, 30),
-                                    themeMode = ThemeMode.SYSTEM
-                                ),
-                                onAction = {},
-                                modifier = Modifier.padding(innerPadding)
-                            )
-                        }
+                        val profileViewModel: ProfileViewModel = viewModel(
+                            factory = profileViewModelFactory
+                        )
+                        ProfileRoute(
+                            viewModel = profileViewModel,
+                            modifier = Modifier.padding(innerPadding)
+                        )
                     }
                 }
             }
