@@ -747,6 +747,96 @@ class GroupsViewModelTest {
     }
 
     @Test
+    fun `when cached detail refresh is unauthorized, then cached detail is read only`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = completion
+
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        runCurrent()
+
+        completion.complete(
+            CollaborationMutationResult.NotAuthorized(CollaborationError.NotAuthorized)
+        )
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(GroupsUiError.NotAuthorized, state.detailError)
+        assertEquals(2, state.selectedGroup?.members?.size)
+        assertNull(state.selectedGroup?.currentUserRole)
+        assertNull(state.selectedGroup?.actorPermissions)
+        assertTrue(state.selectedGroup?.permissionsByMemberId?.isEmpty() == true)
+        assertTrue(state.selectedGroup?.memberActionsByMemberId?.isEmpty() == true)
+        assertFalse(state.selectedGroup?.canLeaveGroup == true)
+        listOf<GroupsAction>(
+            GroupsAction.OpenUpdateGroupDialog,
+            GroupsAction.OpenInviteMemberDialog,
+            GroupsAction.OpenLeaveGroupDialog,
+            GroupsAction.OpenDeleteGroupDialog,
+            GroupsAction.OpenChangeMemberRoleDialog(UserId("member-1"))
+        ).forEach { action ->
+            viewModel.onAction(action)
+            assertNull(viewModel.uiState.value.dialog)
+        }
+    }
+
+    @Test
+    fun `when cached detail is not found, then cached detail is read only`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = completion
+
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        runCurrent()
+
+        completion.complete(
+            CollaborationMutationResult.Failure(CollaborationError.NotFound)
+        )
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(GroupsUiError.NotFound, state.detailError)
+        assertEquals(2, state.selectedGroup?.members?.size)
+        assertNull(state.selectedGroup?.currentUserRole)
+        assertNull(state.selectedGroup?.actorPermissions)
+        assertTrue(state.selectedGroup?.permissionsByMemberId?.isEmpty() == true)
+        assertTrue(state.selectedGroup?.memberActionsByMemberId?.isEmpty() == true)
+        assertFalse(state.selectedGroup?.canLeaveGroup == true)
+        listOf<GroupsAction>(
+            GroupsAction.OpenUpdateGroupDialog,
+            GroupsAction.OpenInviteMemberDialog,
+            GroupsAction.OpenLeaveGroupDialog,
+            GroupsAction.OpenDeleteGroupDialog,
+            GroupsAction.OpenChangeMemberRoleDialog(UserId("member-1"))
+        ).forEach { action ->
+            viewModel.onAction(action)
+            assertNull(viewModel.uiState.value.dialog)
+        }
+    }
+
+    @Test
+    fun `when cached detail refresh is offline, then cached permissions remain available`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = completion
+
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        runCurrent()
+
+        completion.complete(CollaborationMutationResult.NetworkRequired)
+        advanceUntilIdle()
+
+        val detail = viewModel.uiState.value.selectedGroup
+        assertEquals(GroupsUiError.Offline, viewModel.uiState.value.detailError)
+        assertNotNull(detail?.currentUserRole)
+        assertNotNull(detail?.actorPermissions)
+        assertTrue(detail?.permissionsByMemberId?.isNotEmpty() == true)
+    }
+
+    @Test
     fun `when create validation fails, then dialog keeps localized error until input or dismissal clears it`() = runTest {
         val viewModel = GroupsViewModel(repository)
         advanceUntilIdle()
@@ -754,7 +844,10 @@ class GroupsViewModelTest {
 
         viewModel.onAction(GroupsAction.CreateGroup("", null))
 
-        assertTrue(viewModel.uiState.value.error is GroupsUiError.Validation)
+        assertEquals(
+            GroupsValidationKind.GROUP_NAME_REQUIRED,
+            (viewModel.uiState.value.error as GroupsUiError.Validation).kind
+        )
         assertEquals(GroupsDialog.CreateGroup, viewModel.uiState.value.dialog)
 
         viewModel.onAction(GroupsAction.DismissError)
@@ -773,8 +866,33 @@ class GroupsViewModelTest {
 
         viewModel.onAction(GroupsAction.InviteMember("not-an-email"))
 
-        assertTrue(viewModel.uiState.value.error is GroupsUiError.Validation)
+        assertEquals(
+            GroupsValidationKind.EMAIL_INVALID,
+            (viewModel.uiState.value.error as GroupsUiError.Validation).kind
+        )
         assertEquals(GroupsDialog.InviteMember(CollaborationGroupId("group-1")), viewModel.uiState.value.dialog)
+    }
+
+    @Test
+    fun `when repository returns validation detail, then UI error is typed without raw server text`() = runTest {
+        val completion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = completion
+
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        runCurrent()
+
+        completion.complete(
+            CollaborationMutationResult.Failure(
+                CollaborationError.Validation("server says invite email is invalid")
+            )
+        )
+        advanceUntilIdle()
+
+        val validation = viewModel.uiState.value.detailError as GroupsUiError.Validation
+        assertEquals(GroupsValidationKind.GENERAL, validation.kind)
+        assertNull(validation.diagnostic)
     }
 
     @Test

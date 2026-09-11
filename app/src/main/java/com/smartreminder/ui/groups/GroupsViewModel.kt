@@ -376,12 +376,22 @@ class GroupsViewModel(
         }
     }
 
-    private fun actorRole(): GroupRole? =
-        currentUserId?.let { id -> members.value.firstOrNull { it.userId == id }?.role }
+    private fun actorRole(): GroupRole? {
+        if (!cachedPermissionsAreUsable()) return null
+        return currentUserId?.let { id -> members.value.firstOrNull { it.userId == id }?.role }
+    }
 
     private fun actorPermissions() = actorRole()?.let { role ->
         currentUserId?.let { GroupPermissionEvaluator.permissionsFor(it, role) }
     }
+
+    /**
+     * A cached detail remains useful after an offline failure, but an authorization or not-found
+     * response makes cached actor permissions unsafe to use for mutation affordances.
+     */
+    private fun cachedPermissionsAreUsable(): Boolean =
+        detailError.value !is GroupsUiError.NotAuthorized &&
+            detailError.value !is GroupsUiError.NotFound
 
     private fun findMember(memberId: UserId): GroupMember? =
         members.value.firstOrNull { it.userId == memberId }
@@ -396,7 +406,7 @@ class GroupsViewModel(
         val command = try {
             CreateGroupCommand(action.name, action.description)
         } catch (validation: IllegalArgumentException) {
-            setError(GroupsUiError.Validation(validation.message.orEmpty()))
+            setError(GroupsUiError.Validation(GroupsValidationKind.GROUP_NAME_REQUIRED))
             return
         }
         mutate(PendingGroupsMutation(GroupsMutation.CREATE_GROUP)) {
@@ -410,7 +420,7 @@ class GroupsViewModel(
         val command = try {
             UpdateGroupCommand(groupId, action.name, action.description)
         } catch (validation: IllegalArgumentException) {
-            setError(GroupsUiError.Validation(validation.message.orEmpty()))
+            setError(GroupsUiError.Validation(GroupsValidationKind.GROUP_NAME_REQUIRED))
             return
         }
         mutate(PendingGroupsMutation(GroupsMutation.UPDATE_GROUP, groupId)) {
@@ -424,7 +434,7 @@ class GroupsViewModel(
         val command = try {
             InviteMemberCommand(groupId, action.email)
         } catch (validation: IllegalArgumentException) {
-            setError(GroupsUiError.Validation(validation.message.orEmpty()))
+            setError(GroupsUiError.Validation(GroupsValidationKind.EMAIL_INVALID))
             return
         }
         mutate(PendingGroupsMutation(GroupsMutation.INVITE_MEMBER, groupId)) {
@@ -454,7 +464,7 @@ class GroupsViewModel(
         val command = try {
             ChangeMemberRoleCommand(groupId, action.memberId, action.targetRole)
         } catch (validation: IllegalArgumentException) {
-            setError(GroupsUiError.Validation(validation.message.orEmpty()))
+            setError(GroupsUiError.Validation(GroupsValidationKind.ROLE_INVALID))
             return
         }
         mutate(PendingGroupsMutation(GroupsMutation.CHANGE_MEMBER_ROLE, groupId, action.memberId)) {
@@ -670,32 +680,40 @@ class GroupsViewModel(
             GroupDetailUiModel(
                 group = it,
                 members = members.value,
-                permissionsByMemberId = members.value.associate { member ->
-                    member.userId to GroupPermissionEvaluator.permissionsFor(member.userId, member.role)
+                permissionsByMemberId = if (cachedPermissionsAreUsable()) {
+                    members.value.associate { member ->
+                        member.userId to GroupPermissionEvaluator.permissionsFor(member.userId, member.role)
+                    }
+                } else {
+                    emptyMap()
                 },
                 currentUserId = currentUserId,
                 currentUserRole = actorRole,
                 actorPermissions = actorPermissions,
-                memberActionsByMemberId = members.value.associate { member ->
-                    member.userId to GroupMemberUiPermissions(
-                        canChangeRole = actorRole?.let { role ->
-                            GroupPermissionEvaluator.canChangeMemberRole(
-                                actorRole = role,
-                                targetRole = member.role,
-                                newRole = if (member.role == GroupRole.ADMIN) {
-                                    GroupRole.MEMBER
-                                } else {
-                                    GroupRole.ADMIN
-                                }
-                            )
-                        } == true,
-                        canRemove = actorRole?.let { role ->
-                            GroupPermissionEvaluator.canRemoveMember(role, member.role)
-                        } == true,
-                        canTransferOwnership = actorRole?.let { role ->
-                            GroupPermissionEvaluator.canTransferOwnership(role, member.role)
-                        } == true
-                    )
+                memberActionsByMemberId = if (cachedPermissionsAreUsable()) {
+                    members.value.associate { member ->
+                        member.userId to GroupMemberUiPermissions(
+                            canChangeRole = actorRole?.let { role ->
+                                GroupPermissionEvaluator.canChangeMemberRole(
+                                    actorRole = role,
+                                    targetRole = member.role,
+                                    newRole = if (member.role == GroupRole.ADMIN) {
+                                        GroupRole.MEMBER
+                                    } else {
+                                        GroupRole.ADMIN
+                                    }
+                                )
+                            } == true,
+                            canRemove = actorRole?.let { role ->
+                                GroupPermissionEvaluator.canRemoveMember(role, member.role)
+                            } == true,
+                            canTransferOwnership = actorRole?.let { role ->
+                                GroupPermissionEvaluator.canTransferOwnership(role, member.role)
+                            } == true
+                        )
+                    }
+                } else {
+                    emptyMap()
                 },
                 canLeaveGroup = actorRole?.let { role ->
                     GroupPermissionEvaluator.canLeaveGroup(role, members.value.size == 1)
@@ -760,7 +778,7 @@ class GroupsViewModel(
         CollaborationError.MemberNotFound -> GroupsUiError.MemberNotFound
         CollaborationError.AlreadyMember -> GroupsUiError.AlreadyMember
         CollaborationError.InviteAlreadyPending -> GroupsUiError.InviteAlreadyPending
-        is CollaborationError.Validation -> GroupsUiError.Validation(domainError.message)
+        is CollaborationError.Validation -> GroupsUiError.Validation(GroupsValidationKind.GENERAL)
         is CollaborationError.Conflict -> GroupsUiError.Conflict(domainError.message)
         is CollaborationError.InvalidState -> GroupsUiError.InvalidState(domainError.message)
         is CollaborationError.MappingFailure -> GroupsUiError.MappingFailure(domainError.message)

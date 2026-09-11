@@ -241,7 +241,10 @@
     <string name="groups_error_already_member">You are already a member of this group.</string>
     <string name="groups_error_invite_pending">An invitation is already pending.</string>
     <string name="groups_error_invalid_input">Check the highlighted fields and try again.</string>
-    <string name="groups_error_validation">%1$s</string>
+    <string name="groups_error_group_name_required">Enter a group name.</string>
+    <string name="groups_error_email_invalid">Enter a valid email address.</string>
+    <string name="groups_error_role_invalid">Choose a valid role.</string>
+    <string name="groups_error_validation_general">Check the highlighted fields and try again.</string>
     <string name="groups_error_conflict">This group changed elsewhere. Refresh and try again.</string>
     <string name="groups_error_invalid_state">That action is no longer available.</string>
     <string name="groups_error_mapping">We couldn’t read the group data.</string>

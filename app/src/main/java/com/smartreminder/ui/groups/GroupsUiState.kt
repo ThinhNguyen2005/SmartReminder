@@ -32,6 +32,13 @@ enum class GroupsDetailLoadState {
     OFFLINE_REFRESHING
 }
 
+enum class GroupsValidationKind {
+    GROUP_NAME_REQUIRED,
+    EMAIL_INVALID,
+    ROLE_INVALID,
+    GENERAL
+}
+
 sealed interface GroupsUiError {
     data object MissingConfiguration : GroupsUiError
     data object Offline : GroupsUiError
@@ -40,7 +47,19 @@ sealed interface GroupsUiError {
     data object MemberNotFound : GroupsUiError
     data object AlreadyMember : GroupsUiError
     data object InviteAlreadyPending : GroupsUiError
-    data class Validation(val message: String) : GroupsUiError
+    /**
+     * A safe, typed validation outcome. Server/domain diagnostics must never be rendered directly.
+     */
+    data class Validation(
+        val kind: GroupsValidationKind,
+        val diagnostic: String? = null
+    ) : GroupsUiError {
+        /** Compatibility for callers that only have an untrusted validation message. */
+        constructor(_untrustedMessage: String) : this(
+            kind = GroupsValidationKind.GENERAL,
+            diagnostic = null
+        )
+    }
     data class Conflict(val message: String?) : GroupsUiError
     data class InvalidState(val message: String?) : GroupsUiError
     data class MappingFailure(val message: String) : GroupsUiError

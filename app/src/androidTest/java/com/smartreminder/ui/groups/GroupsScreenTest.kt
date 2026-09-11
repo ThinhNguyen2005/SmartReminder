@@ -1,6 +1,8 @@
 package com.smartreminder.ui.groups
 
+import android.content.res.Configuration
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -14,6 +16,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.unit.Density
@@ -29,6 +32,7 @@ import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import com.smartreminder.ui.theme.SmartReminderTheme
 import java.time.Instant
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -255,6 +259,68 @@ class GroupsScreenTest {
     }
 
     @Test
+    fun unauthorizedCachedDetailRendersReadOnlyWithoutMutationAffordances() {
+        val group = group("group-1", "Household")
+        val actor = member(group.id.value, "owner-1", GroupRole.OWNER)
+        val source = detailState(
+            group = group,
+            members = listOf(actor),
+            detailLoadState = GroupsDetailLoadState.CACHED_OFFLINE,
+            detailError = GroupsUiError.NotAuthorized
+        )
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupDetailScreen(uiState = source, onAction = {})
+            }
+        }
+
+        composeRule.onAllNodesWithText("Household").assertCountEquals(2)
+        composeRule.onNodeWithText("Ari").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_error_not_authorized)
+        ).assertIsDisplayed()
+        listOf(
+            R.string.groups_edit_group,
+            R.string.groups_invite_member,
+            R.string.groups_leave_group,
+            R.string.groups_delete_group
+        ).forEach { label ->
+            composeRule.onAllNodesWithText(composeRule.activity.getString(label)).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun notFoundCachedDetailRendersReadOnlyWithoutMutationAffordances() {
+        val group = group("group-1", "Household")
+        val actor = member(group.id.value, "owner-1", GroupRole.OWNER)
+        val source = detailState(
+            group = group,
+            members = listOf(actor),
+            detailLoadState = GroupsDetailLoadState.CACHED_OFFLINE,
+            detailError = GroupsUiError.NotFound
+        )
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupDetailScreen(uiState = source, onAction = {})
+            }
+        }
+
+        composeRule.onAllNodesWithText("Household").assertCountEquals(2)
+        composeRule.onNodeWithText("Ari").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_error_not_found)
+        ).assertIsDisplayed()
+        listOf(
+            R.string.groups_edit_group,
+            R.string.groups_invite_member,
+            R.string.groups_leave_group,
+            R.string.groups_delete_group
+        ).forEach { label ->
+            composeRule.onAllNodesWithText(composeRule.activity.getString(label)).assertCountEquals(0)
+        }
+    }
+
+    @Test
     fun roleOptionsExposeMergedRadioButtonAndSelectedSemantics() {
         val group = group("group-1", "Household")
         val target = member(group.id.value, "member-1", GroupRole.MEMBER)
@@ -343,19 +409,78 @@ class GroupsScreenTest {
                     dialog = GroupsDialog.CreateGroup,
                     uiState = GroupsUiState(
                         dialog = GroupsDialog.CreateGroup,
-                        error = GroupsUiError.Validation("Enter a name")
+                        error = GroupsUiError.Validation(GroupsValidationKind.GROUP_NAME_REQUIRED)
                     ),
                     onAction = { actions += it }
                 )
             }
         }
 
-        val errorNode = composeRule.onNodeWithText("Enter a name").assertIsDisplayed()
+        val expectedMessage = composeRule.activity.getString(R.string.groups_error_group_name_required)
+        val errorNode = composeRule.onNodeWithText(expectedMessage).assertIsDisplayed()
             .fetchSemanticsNode()
-        assertEquals("Enter a name", errorNode.config[SemanticsProperties.Error])
+        assertEquals(expectedMessage, errorNode.config[SemanticsProperties.Error])
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_group_name))
             .performTextInput("A name")
         assertTrue(actions.contains(GroupsAction.DismissError))
+    }
+
+    @Test
+    fun blankGroupValidationUsesVietnameseResourceAndErrorSemantics() {
+        val viContext = composeRule.activity.createConfigurationContext(
+            Configuration(composeRule.activity.resources.configuration).apply {
+                setLocale(Locale("vi"))
+            }
+        )
+        composeRule.setContent {
+            CompositionLocalProvider(LocalContext provides viContext) {
+                SmartReminderTheme {
+                    GroupsDialogHost(
+                        dialog = GroupsDialog.CreateGroup,
+                        uiState = GroupsUiState(
+                            dialog = GroupsDialog.CreateGroup,
+                            error = GroupsUiError.Validation(GroupsValidationKind.GROUP_NAME_REQUIRED)
+                        ),
+                        onAction = {}
+                    )
+                }
+            }
+        }
+
+        val expectedMessage = viContext.getString(R.string.groups_error_group_name_required)
+        val errorNode = composeRule.onNodeWithText(expectedMessage).assertIsDisplayed()
+            .fetchSemanticsNode()
+        assertEquals(expectedMessage, errorNode.config[SemanticsProperties.Error])
+    }
+
+    @Test
+    fun invalidEmailValidationUsesVietnameseResourceWithoutRawDiagnostic() {
+        val viContext = composeRule.activity.createConfigurationContext(
+            Configuration(composeRule.activity.resources.configuration).apply {
+                setLocale(Locale("vi"))
+            }
+        )
+        composeRule.setContent {
+            CompositionLocalProvider(LocalContext provides viContext) {
+                SmartReminderTheme {
+                    GroupsDialogHost(
+                        dialog = GroupsDialog.InviteMember(CollaborationGroupId("group-1")),
+                        uiState = GroupsUiState(
+                            dialog = GroupsDialog.InviteMember(CollaborationGroupId("group-1")),
+                            error = GroupsUiError.Validation(
+                                kind = GroupsValidationKind.EMAIL_INVALID,
+                                diagnostic = "server says invite email is invalid"
+                            )
+                        ),
+                        onAction = {}
+                    )
+                }
+            }
+        }
+
+        val expectedMessage = viContext.getString(R.string.groups_error_email_invalid)
+        composeRule.onNodeWithText(expectedMessage).assertIsDisplayed()
+        composeRule.onAllNodesWithText("server says invite email is invalid").assertCountEquals(0)
     }
 
     @Test

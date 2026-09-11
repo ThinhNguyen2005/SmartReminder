@@ -562,8 +562,8 @@ fun GroupDetailScreen(
     onAction: (GroupsAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val detail = uiState.selectedGroup
-    if (detail == null) {
+    val selectedDetail = uiState.selectedGroup
+    if (selectedDetail == null) {
         if (uiState.loadState == GroupsLoadState.LOADING) {
             GroupsLoadingState(modifier = modifier.fillMaxSize())
         } else {
@@ -574,6 +574,20 @@ fun GroupDetailScreen(
             )
         }
         return
+    }
+    val detail = if (
+        uiState.detailError is GroupsUiError.NotAuthorized ||
+        uiState.detailError is GroupsUiError.NotFound
+    ) {
+        selectedDetail.copy(
+            currentUserRole = null,
+            actorPermissions = null,
+            permissionsByMemberId = emptyMap(),
+            memberActionsByMemberId = emptyMap(),
+            canLeaveGroup = false
+        )
+    } else {
+        selectedDetail
     }
 
     Column(
@@ -1006,10 +1020,15 @@ internal fun groupsErrorMessage(error: GroupsUiError?): String = when (error) {
     GroupsUiError.MemberNotFound -> stringResource(R.string.groups_error_member_not_found)
     GroupsUiError.AlreadyMember -> stringResource(R.string.groups_error_already_member)
     GroupsUiError.InviteAlreadyPending -> stringResource(R.string.groups_error_invite_pending)
-    is GroupsUiError.Validation -> if (error.message.isBlank()) {
-        stringResource(R.string.groups_error_invalid_input)
-    } else {
-        stringResource(R.string.groups_error_validation, error.message)
+    is GroupsUiError.Validation -> when (error.kind) {
+        GroupsValidationKind.GROUP_NAME_REQUIRED ->
+            stringResource(R.string.groups_error_group_name_required)
+        GroupsValidationKind.EMAIL_INVALID ->
+            stringResource(R.string.groups_error_email_invalid)
+        GroupsValidationKind.ROLE_INVALID ->
+            stringResource(R.string.groups_error_role_invalid)
+        GroupsValidationKind.GENERAL ->
+            stringResource(R.string.groups_error_validation_general)
     }
     is GroupsUiError.Conflict -> stringResource(R.string.groups_error_conflict)
     is GroupsUiError.InvalidState -> stringResource(R.string.groups_error_invalid_state)
