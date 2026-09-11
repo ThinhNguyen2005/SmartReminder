@@ -27,6 +27,7 @@ class DefaultUserPreferencesSyncCoordinatorTest {
     private var currentUserId: String? = null
     private var signOutCalled: Boolean = false
     private var shouldThrowOnSignOut: Boolean = false
+    private var collaborationCacheCleared: Boolean = false
     private val callOrderList = mutableListOf<String>()
 
     private lateinit var coordinator: DefaultUserPreferencesSyncCoordinator
@@ -38,6 +39,7 @@ class DefaultUserPreferencesSyncCoordinatorTest {
         currentUserId = null
         signOutCalled = false
         shouldThrowOnSignOut = false
+        collaborationCacheCleared = false
         callOrderList.clear()
 
         coordinator = DefaultUserPreferencesSyncCoordinator(
@@ -48,6 +50,10 @@ class DefaultUserPreferencesSyncCoordinatorTest {
                 if (shouldThrowOnSignOut) throw IOException("Auth sign out failure")
                 signOutCalled = true
                 callOrderList.add("auth.signOut")
+            },
+            clearCollaborationCache = {
+                collaborationCacheCleared = true
+                callOrderList.add("collaboration.clearCache")
             }
         )
     }
@@ -222,8 +228,12 @@ class DefaultUserPreferencesSyncCoordinatorTest {
         coordinator.signOutAndClearLocal()
 
         // Then
-        assertEquals(listOf("cloud.upsert", "auth.signOut", "local.clearOnboardingPreferences"), callOrderList)
+        assertEquals(
+            listOf("cloud.upsert", "auth.signOut", "collaboration.clearCache", "local.clearOnboardingPreferences"),
+            callOrderList
+        )
         assertTrue(signOutCalled)
+        assertTrue(collaborationCacheCleared)
         assertFalse(fakeLocalRepo.currentPrefs.onboardingCompleted)
         assertEquals(ThemeMode.DARK, fakeLocalRepo.currentPrefs.themeMode)
     }

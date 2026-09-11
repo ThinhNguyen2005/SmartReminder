@@ -100,6 +100,9 @@ interface CollaborationCacheDao {
     @Query("DELETE FROM cached_group_invites WHERE group_id = :groupId AND id = :inviteId")
     suspend fun deleteInvite(groupId: String, inviteId: String)
 
+    @Query("DELETE FROM cached_group_invites WHERE id = :inviteId")
+    suspend fun deleteInviteById(inviteId: String)
+
     @Transaction
     suspend fun replaceInvites(groupId: String, invites: List<CachedGroupInviteEntity>) {
         deleteInvitesForGroup(groupId)

@@ -30,10 +30,15 @@ import com.smartreminder.domain.repository.TransferOwnershipCommand
 import com.smartreminder.domain.repository.UpdateGroupCommand
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import io.github.jan.supabase.exceptions.RestException
 
 /**
  * Cache-first repository for the G2 group membership surface.
@@ -46,7 +51,8 @@ class DefaultCollaborationRepository(
     private val cache: CollaborationCacheDataSource,
     private val remote: CollaborationRemoteDataSource,
     private val network: () -> Boolean,
-    private val getCurrentUserId: () -> UserId? = { null }
+    private val getCurrentUserId: () -> UserId? = { null },
+    private val observeUserId: () -> Flow<UserId?> = { flowOf(getCurrentUserId()) }
 ) : CollaborationRepository {
 
     /** Compatibility overload for the original cache/remote/network constructor. */
@@ -57,6 +63,18 @@ class DefaultCollaborationRepository(
     ) : this(cache, remote, network, { null })
 
     override fun currentUserId(): UserId? = getCurrentUserId()
+
+    override fun observeCurrentUserId(): Flow<UserId?> = observeUserId().distinctUntilChanged()
+
+    private val cacheWriteMutex = Mutex()
+    private var cacheGeneration = 0L
+
+    override suspend fun clearSessionCache() {
+        cacheWriteMutex.withLock {
+            cacheGeneration += 1
+            cache.clearAll()
+        }
+    }
 
     override fun observeGroups(): Flow<List<CollaborationGroup>> =
         cache.observeGroups().map { groups -> groups.map(CollaborationRemoteMapper::fromCache) }
@@ -77,86 +95,122 @@ class DefaultCollaborationRepository(
     override fun observeInvites(): Flow<List<GroupInvite>> =
         cache.observeInvites().map { invites -> invites.map(CollaborationRemoteMapper::fromCache) }
 
-    override suspend fun refreshGroups(): CollaborationMutationResult = try {
-        val groups = remote.fetchGroups()
-        cache.replaceGroups(groups.map(CollaborationRemoteMapper::toCache))
-        CollaborationMutationResult.Applied
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (failure: Exception) {
-        networkFailure(failure)
-    }
-
-    override suspend fun refreshGroup(groupId: CollaborationGroupId): CollaborationMutationResult = try {
-        val group = remote.fetchGroup(groupId.value)
-        if (group == null) {
-            cache.removeGroup(groupId.value)
-            CollaborationMutationResult.Failure(CollaborationError.NotFound)
-        } else {
-            val members = remote.fetchMembers(groupId.value)
-            cache.replaceGroup(
-                group = CollaborationRemoteMapper.toCache(group),
-                members = members.map(CollaborationRemoteMapper::toCache)
-            )
+    override suspend fun refreshGroups(): CollaborationMutationResult {
+        val generation = currentCacheGeneration()
+        return try {
+            val groups = remote.fetchGroups()
+            writeCacheIfCurrent(generation) {
+                cache.replaceGroups(groups.map(CollaborationRemoteMapper::toCache))
+            }
             CollaborationMutationResult.Applied
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            val result = networkFailure(failure)
+            if (result.isAccessLoss()) clearSessionCacheIfCurrent(generation)
+            result
         }
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (failure: Exception) {
-        networkFailure(failure)
     }
 
-    override suspend fun refreshInvites(): CollaborationMutationResult = try {
-        val invites = remote.fetchInvites()
-        cache.replaceInvites(invites.map(CollaborationRemoteMapper::toCache))
-        CollaborationMutationResult.Applied
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (failure: Exception) {
-        networkFailure(failure)
+    override suspend fun refreshGroup(groupId: CollaborationGroupId): CollaborationMutationResult {
+        val generation = currentCacheGeneration()
+        return try {
+            val group = remote.fetchGroup(groupId.value)
+            if (group == null) {
+                evictGroupIfCurrent(generation, groupId)
+                CollaborationMutationResult.Failure(CollaborationError.NotFound)
+            } else {
+                val members = remote.fetchMembers(groupId.value)
+                writeCacheIfCurrent(generation) {
+                    cache.replaceGroup(
+                        group = CollaborationRemoteMapper.toCache(group),
+                        members = members.map(CollaborationRemoteMapper::toCache)
+                    )
+                }
+                CollaborationMutationResult.Applied
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            val result = networkFailure(failure)
+            if (result.isAccessLoss()) evictGroupIfCurrent(generation, groupId)
+            result
+        }
+    }
+
+    override suspend fun refreshInvites(): CollaborationMutationResult {
+        val generation = currentCacheGeneration()
+        return try {
+            val invites = remote.fetchInvites()
+            writeCacheIfCurrent(generation) {
+                cache.replaceInvites(invites.map(CollaborationRemoteMapper::toCache))
+            }
+            CollaborationMutationResult.Applied
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            val result = networkFailure(failure)
+            if (result.isAccessLoss()) clearSessionCacheIfCurrent(generation)
+            result
+        }
     }
 
     override suspend fun createGroup(command: CreateGroupCommand): CollaborationMutationResult =
         executeMutation(
             action = { remote.createGroup(command) },
             resultMapper = CollaborationRemoteMapper::toCreateGroupMutationResult,
-            afterApplied = { refreshGroups() }
+            afterApplied = { envelope ->
+                refreshGroups()
+                envelope.groupIdOrNull()?.let { createdGroupId -> refreshGroup(createdGroupId) }
+            }
         )
 
     override suspend fun updateGroup(command: UpdateGroupCommand): CollaborationMutationResult =
         executeMutation(
             action = { remote.updateGroup(command) },
-            afterApplied = { refreshGroupAndList(command.groupId) }
+            afterApplied = { refreshGroupAndList(command.groupId) },
+            affectedGroupId = command.groupId
         )
 
     override suspend fun inviteMember(command: InviteMemberCommand): CollaborationMutationResult =
         executeMutation(
             action = { remote.inviteMember(command) },
-            afterApplied = { refreshInvites(); refreshGroupAndList(command.groupId) }
+            afterApplied = { refreshInvites(); refreshGroupAndList(command.groupId) },
+            affectedGroupId = command.groupId
         )
 
     override suspend fun acceptInvite(inviteId: GroupInviteId): CollaborationMutationResult =
         executeMutation(
             action = { remote.acceptInvite(AcceptInviteCommand(inviteId)) },
-            afterApplied = { envelope -> refreshInvitesAndAffectedGroup(envelope) }
+            afterApplied = { envelope ->
+                cache.removeInvite(inviteId.value)
+                refreshInvitesAndAffectedGroup(envelope)
+            },
+            affectedInviteId = inviteId
         )
 
     override suspend fun declineInvite(inviteId: GroupInviteId): CollaborationMutationResult =
         executeMutation(
             action = { remote.declineInvite(DeclineInviteCommand(inviteId)) },
-            afterApplied = { envelope -> refreshInvitesAndAffectedGroup(envelope) }
+            afterApplied = { envelope ->
+                cache.removeInvite(inviteId.value)
+                refreshInvitesAndAffectedGroup(envelope)
+            },
+            affectedInviteId = inviteId
         )
 
     override suspend fun changeMemberRole(command: ChangeMemberRoleCommand): CollaborationMutationResult =
         executeMutation(
             action = { remote.changeMemberRole(command) },
-            afterApplied = { refreshGroupAndList(command.groupId) }
+            afterApplied = { refreshGroupAndList(command.groupId) },
+            affectedGroupId = command.groupId
         )
 
     override suspend fun removeMember(command: RemoveMemberCommand): CollaborationMutationResult =
         executeMutation(
             action = { remote.removeMember(command) },
-            afterApplied = { refreshGroupAndList(command.groupId) }
+            afterApplied = { refreshGroupAndList(command.groupId) },
+            affectedGroupId = command.groupId
         )
 
     override suspend fun transferOwnership(command: TransferOwnershipCommand): CollaborationMutationResult =
@@ -165,25 +219,30 @@ class DefaultCollaborationRepository(
             afterApplied = {
                 refreshGroupAndList(command.groupId)
                 refreshInvites()
-            }
+            },
+            affectedGroupId = command.groupId
         )
 
     override suspend fun leaveGroup(groupId: CollaborationGroupId): CollaborationMutationResult =
         executeMutation(
             action = { remote.leaveGroup(LeaveGroupCommand(groupId)) },
             afterApplied = {
+                evictGroup(groupId)
                 refreshGroups()
                 refreshInvites()
-            }
+            },
+            affectedGroupId = groupId
         )
 
     override suspend fun deleteGroup(groupId: CollaborationGroupId): CollaborationMutationResult =
         executeMutation(
             action = { remote.deleteGroup(DeleteGroupCommand(groupId)) },
             afterApplied = {
+                evictGroup(groupId)
                 refreshGroups()
                 refreshInvites()
-            }
+            },
+            affectedGroupId = groupId
         )
 
     override suspend fun createTask(command: com.smartreminder.domain.repository.CreateGroupTaskCommand): CollaborationMutationResult =
@@ -201,8 +260,10 @@ class DefaultCollaborationRepository(
     private suspend fun executeMutation(
         action: suspend () -> CollaborationMutationEnvelopeRemoteDto,
         resultMapper: (CollaborationMutationEnvelopeRemoteDto) -> CollaborationMutationResult =
-            CollaborationRemoteMapper::toMutationResult,
-        afterApplied: suspend (CollaborationMutationEnvelopeRemoteDto) -> Unit = {}
+            CollaborationRemoteMapper::toG2MutationResult,
+        afterApplied: suspend (CollaborationMutationEnvelopeRemoteDto) -> Unit = {},
+        affectedGroupId: CollaborationGroupId? = null,
+        affectedInviteId: GroupInviteId? = null
     ): CollaborationMutationResult {
         val networkAvailable = try {
             network()
@@ -212,6 +273,8 @@ class DefaultCollaborationRepository(
             true
         }
         if (!networkAvailable) return CollaborationMutationResult.NetworkRequired
+
+        beginMutationBoundary()
 
         return try {
             val envelope = action()
@@ -226,6 +289,9 @@ class DefaultCollaborationRepository(
                 } catch (_: Exception) {
                     // The RPC already applied. Keep the truthful result and retain cache rows.
                 }
+            } else if (result.isAccessLoss()) {
+                if (affectedGroupId != null) evictGroup(affectedGroupId)
+                if (affectedInviteId != null) cache.removeInvite(affectedInviteId.value)
             }
             result
         } catch (cancelled: CancellationException) {
@@ -261,6 +327,12 @@ class DefaultCollaborationRepository(
                 cause = failure
             )
 
+            is RestException -> when (failure.statusCode) {
+                401, 403 -> CollaborationError.NotAuthorized
+                404 -> CollaborationError.NotFound
+                else -> CollaborationError.NetworkUnavailable(failure)
+            }
+
             else -> CollaborationError.NetworkUnavailable(failure)
         }
         return CollaborationMutationResult.Failure(error)
@@ -268,4 +340,53 @@ class DefaultCollaborationRepository(
 
     private fun unsupportedTaskMutation(): Nothing =
         throw UnsupportedOperationException("Group task mutations are scheduled for G3")
+
+    private suspend fun currentCacheGeneration(): Long = cacheWriteMutex.withLock { cacheGeneration }
+
+    private suspend fun beginMutationBoundary() {
+        cacheWriteMutex.withLock { cacheGeneration += 1 }
+    }
+
+    private suspend fun writeCacheIfCurrent(generation: Long, write: suspend () -> Unit) {
+        cacheWriteMutex.withLock {
+            if (cacheGeneration == generation) write()
+        }
+    }
+
+    private suspend fun clearSessionCacheIfCurrent(generation: Long) {
+        cacheWriteMutex.withLock {
+            if (cacheGeneration == generation) {
+                cacheGeneration += 1
+                cache.clearAll()
+            }
+        }
+    }
+
+    private suspend fun evictGroupIfCurrent(generation: Long, groupId: CollaborationGroupId) {
+        cacheWriteMutex.withLock {
+            if (cacheGeneration == generation) {
+                cache.removeGroup(groupId.value)
+                cache.removeInvitesForGroup(groupId.value)
+            }
+        }
+    }
+
+    private suspend fun evictGroup(groupId: CollaborationGroupId) {
+        cacheWriteMutex.withLock {
+            cache.removeGroup(groupId.value)
+            cache.removeInvitesForGroup(groupId.value)
+        }
+    }
+
+    private fun CollaborationMutationResult.isAccessLoss(): Boolean = when (this) {
+        is CollaborationMutationResult.NotAuthorized -> true
+        is CollaborationMutationResult.Failure -> error is CollaborationError.NotAuthorized ||
+            error is CollaborationError.NotFound
+        else -> false
+    }
+
+    private fun CollaborationMutationEnvelopeRemoteDto.groupIdOrNull(): CollaborationGroupId? =
+        data["group_id"]?.jsonPrimitive?.contentOrNull
+            ?.takeIf(String::isNotBlank)
+            ?.let(::CollaborationGroupId)
 }

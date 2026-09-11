@@ -149,11 +149,22 @@ object CollaborationRemoteMapper {
             )
         )
 
+    /** G2 membership is online-only; a legacy queue response is never success here. */
+    fun toG2MutationResult(dto: CollaborationMutationEnvelopeRemoteDto): CollaborationMutationResult =
+        when (val result = toMutationResult(dto)) {
+            CollaborationMutationResult.Queued -> CollaborationMutationResult.Failure(
+                com.smartreminder.domain.repository.CollaborationError.InvalidState(
+                    "Queued collaboration membership response is not supported"
+                )
+            )
+            else -> result
+        }
+
     /** Maps the create RPC envelope and preserves Task 2's typed group id payload. */
     fun toCreateGroupMutationResult(
         dto: CollaborationMutationEnvelopeRemoteDto
     ): CollaborationMutationResult {
-        val result = toMutationResult(dto)
+        val result = toG2MutationResult(dto)
         if (result !== CollaborationMutationResult.Applied) return result
 
         val groupId = (dto.data["group_id"] as? JsonPrimitive)?.contentOrNull

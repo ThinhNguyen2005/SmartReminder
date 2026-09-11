@@ -19,7 +19,8 @@ class DefaultUserPreferencesSyncCoordinator(
     private val localRepository: UserPreferencesRepository,
     private val cloudRepository: UserPreferencesCloudRepository,
     private val getCurrentUserId: () -> String?,
-    private val signOutAuth: suspend () -> Unit
+    private val signOutAuth: suspend () -> Unit,
+    private val clearCollaborationCache: suspend () -> Unit = {}
 ) : UserPreferencesSyncCoordinator {
 
     constructor(
@@ -93,7 +94,10 @@ class DefaultUserPreferencesSyncCoordinator(
         // 2. Sign out of Auth session
         signOutAuth()
 
-        // 3. Clear local onboarding preferences (theme is preserved)
+        // 3. Remove session-bound collaboration rows before any next account can observe them.
+        clearCollaborationCache()
+
+        // 4. Clear local onboarding preferences (theme is preserved)
         localRepository.clearOnboardingPreferences()
     }
 }

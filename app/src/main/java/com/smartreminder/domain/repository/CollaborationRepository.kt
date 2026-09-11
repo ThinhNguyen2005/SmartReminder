@@ -10,6 +10,7 @@ import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
 import com.smartreminder.domain.model.collaboration.ids.GroupTaskId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import java.time.Instant
 
 data class CreateGroupTaskCommand(
@@ -47,6 +48,12 @@ data class EditOwnGroupTaskContentCommand(
 interface CollaborationRepository {
     /** Typed actor identity supplied by the composition/data boundary. */
     fun currentUserId(): UserId? = null
+
+    /** Session-safe identity stream; implementations emit whenever the auth account changes. */
+    fun observeCurrentUserId(): Flow<UserId?> = flowOf(currentUserId())
+
+    /** Clears all collaboration cache/state at an authenticated-session boundary. */
+    suspend fun clearSessionCache() = Unit
 
     fun observeGroups(): Flow<List<CollaborationGroup>>
     fun observeGroup(groupId: CollaborationGroupId): Flow<CollaborationGroup?>

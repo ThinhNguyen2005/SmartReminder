@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -58,11 +59,11 @@ class GroupsViewModel(
     )
     private val detailError = MutableStateFlow<GroupsUiError?>(null)
     /**
-     * Keeps cached detail read-only while a previously denied/not-found refresh is retried.
-     * This is cleared only by an authorized refresh or by changing/leaving the selection.
+     * Tracks whether detail actions are restricted while a transient state is being rendered.
+     * Explicit access loss is redacted before this state can expose cached permissions.
      */
     private val detailAccessRestricted = MutableStateFlow(false)
-    private val currentUserId = repository.currentUserId()
+    private val currentUserId = MutableStateFlow(repository.currentUserId())
     private val pendingMutation = MutableStateFlow<PendingGroupsMutation?>(null)
     private val dialog = MutableStateFlow<GroupsDialog?>(null)
     private val error = MutableStateFlow<GroupsUiError?>(null)
@@ -91,10 +92,56 @@ class GroupsViewModel(
     val effects: Flow<GroupsEffect> = effectsChannel.receiveAsFlow()
 
     init {
+        observeIdentity()
         observeGroups()
         observeInvites()
         observeSelectedMembers()
         refresh()
+    }
+
+    private fun observeIdentity() {
+        viewModelScope.launch {
+            repository.observeCurrentUserId()
+                .distinctUntilChanged()
+                .collect { nextUserId ->
+                    if (currentUserId.value == nextUserId) return@collect
+                    currentUserId.value = nextUserId
+                    repository.clearSessionCache()
+                    resetForSessionBoundary()
+                    if (nextUserId != null) {
+                        refresh()
+                    }
+                }
+        }
+    }
+
+    private fun resetForSessionBoundary() {
+        refreshJob?.cancel()
+        detailRefreshJob?.cancel()
+        mutationJob?.cancel()
+        refreshJob = null
+        detailRefreshJob = null
+        mutationJob = null
+        ++refreshGeneration
+        ++detailGeneration
+        ++mutationGeneration
+        groups.value = emptyList()
+        invites.value = emptyList()
+        members.value = emptyList()
+        memberCacheByGroupId.clear()
+        selectedGroupId.value = null
+        savedStateHandle[SELECTED_GROUP_ID_KEY] = null
+        pendingCreatedGroupId = null
+        detailLoadState.value = GroupsDetailLoadState.IDLE
+        detailError.value = null
+        detailAccessRestricted.value = false
+        pendingMutation.value = null
+        dialog.value = null
+        error.value = null
+        refreshCompleted.value = false
+        isOffline.value = false
+        isRefreshing.value = currentUserId.value != null
+        render()
     }
 
     fun onAction(action: GroupsAction) {
@@ -246,11 +293,12 @@ class GroupsViewModel(
     private fun applyRefreshResult(result: CollaborationMutationResult) {
         when (result) {
             CollaborationMutationResult.Applied,
-            is CollaborationMutationResult.Created,
-            CollaborationMutationResult.Queued -> {
+            is CollaborationMutationResult.Created -> {
                 error.value = null
                 isOffline.value = false
             }
+            CollaborationMutationResult.Queued ->
+                applyError(CollaborationError.InvalidState("Queued membership response is unsupported"))
             CollaborationMutationResult.NetworkRequired -> {
                 error.value = GroupsUiError.Offline
                 isOffline.value = true
@@ -263,14 +311,20 @@ class GroupsViewModel(
     }
 
     private fun openGroup(groupId: CollaborationGroupId) {
-        if (groups.value.none { it.id == groupId }) {
+        if (groups.value.none { it.id == groupId } && pendingCreatedGroupId != groupId) {
             setError(GroupsUiError.NotFound)
             return
         }
         if (selectedGroupId.value == groupId && detailRefreshJob?.isActive == true) return
         detailRefreshJob?.cancel()
-        val requestGeneration = ++detailGeneration
         selectGroup(groupId)
+        startDetailRefresh(groupId)
+    }
+
+    private fun startDetailRefresh(groupId: CollaborationGroupId) {
+        if (selectedGroupId.value != groupId) selectGroup(groupId)
+        detailRefreshJob?.cancel()
+        val requestGeneration = ++detailGeneration
         detailRefreshJob = viewModelScope.launch {
             try {
                 val result = repository.refreshGroup(groupId)
@@ -279,14 +333,15 @@ class GroupsViewModel(
                 }
                 when (result) {
                     CollaborationMutationResult.Applied,
-                    is CollaborationMutationResult.Created,
-                    CollaborationMutationResult.Queued -> {
+                    is CollaborationMutationResult.Created -> {
                         detailAccessRestricted.value = false
                         detailError.value = null
                         detailLoadState.value = GroupsDetailLoadState.CONTENT
                         isOffline.value = false
                         render()
                     }
+                    CollaborationMutationResult.Queued ->
+                        applyDetailError(CollaborationError.InvalidState("Queued membership response is unsupported"))
                     CollaborationMutationResult.NetworkRequired -> {
                         applyDetailError(CollaborationError.NetworkUnavailable())
                     }
@@ -384,11 +439,11 @@ class GroupsViewModel(
 
     private fun actorRole(): GroupRole? {
         if (!cachedPermissionsAreUsable()) return null
-        return currentUserId?.let { id -> members.value.firstOrNull { it.userId == id }?.role }
+        return currentUserId.value?.let { id -> members.value.firstOrNull { it.userId == id }?.role }
     }
 
     private fun actorPermissions() = actorRole()?.let { role ->
-        currentUserId?.let { GroupPermissionEvaluator.permissionsFor(it, role) }
+        currentUserId.value?.let { GroupPermissionEvaluator.permissionsFor(it, role) }
     }
 
     /**
@@ -528,9 +583,12 @@ class GroupsViewModel(
     ) {
         if (pendingMutation.value != null || mutationJob?.isActive == true) return
         refreshJob?.cancel()
+        detailRefreshJob?.cancel()
         refreshJob = null
+        detailRefreshJob = null
         isRefreshing.value = false
         ++refreshGeneration
+        ++detailGeneration
         val requestGeneration = ++mutationGeneration
         pendingMutation.value = mutation
         error.value = null
@@ -550,8 +608,7 @@ class GroupsViewModel(
                 pendingMutation.value = null
                 when (result) {
                     CollaborationMutationResult.Applied,
-                    is CollaborationMutationResult.Created,
-                    CollaborationMutationResult.Queued -> {
+                    is CollaborationMutationResult.Created -> {
                         dialog.value = null
                         error.value = null
                         isOffline.value = false
@@ -561,6 +618,12 @@ class GroupsViewModel(
                         ) {
                             pendingCreatedGroupId = result.groupId
                             selectGroup(result.groupId)
+                            if (members.value.isEmpty()) {
+                                startDetailRefresh(result.groupId)
+                            } else {
+                                detailLoadState.value = GroupsDetailLoadState.CONTENT
+                                render()
+                            }
                             reconcilePendingCreatedGroup()
                             effectsChannel.trySend(GroupsEffect.NavigateToDetail(result.groupId))
                         }
@@ -571,14 +634,19 @@ class GroupsViewModel(
                             effectsChannel.trySend(GroupsEffect.NavigateToList)
                         }
                     }
+                    CollaborationMutationResult.Queued ->
+                        applyMutationError(
+                            CollaborationError.InvalidState("Queued membership response is unsupported"),
+                            mutation
+                        )
                     CollaborationMutationResult.NetworkRequired -> {
                         applyError(CollaborationError.NetworkUnavailable())
                         isOffline.value = true
                     }
-                    is CollaborationMutationResult.Failure -> applyError(result.error)
-                    is CollaborationMutationResult.Conflict -> applyError(result.error)
-                    is CollaborationMutationResult.NotAuthorized -> applyError(result.error)
-                    is CollaborationMutationResult.InvalidState -> applyError(result.error)
+                    is CollaborationMutationResult.Failure -> applyMutationError(result.error, mutation)
+                    is CollaborationMutationResult.Conflict -> applyMutationError(result.error, mutation)
+                    is CollaborationMutationResult.NotAuthorized -> applyMutationError(result.error, mutation)
+                    is CollaborationMutationResult.InvalidState -> applyMutationError(result.error, mutation)
                 }
             } catch (cancelled: CancellationException) {
                 if (requestGeneration == mutationGeneration && pendingMutation.value == mutation) {
@@ -653,8 +721,54 @@ class GroupsViewModel(
     }
 
     private fun applyDetailError(domainError: CollaborationError) {
+        if (domainError is CollaborationError.NotAuthorized || domainError is CollaborationError.NotFound) {
+            redactSelectedGroup(domainError)
+            return
+        }
         setDetailError(mapError(domainError))
         isOffline.value = domainError is CollaborationError.NetworkUnavailable
+    }
+
+    private fun applyMutationError(domainError: CollaborationError, mutation: PendingGroupsMutation) {
+        if (domainError is CollaborationError.NotAuthorized || domainError is CollaborationError.NotFound) {
+            if (mutation.groupId != null) {
+                redactGroup(mutation.groupId, domainError)
+            } else if (mutation.inviteId != null) {
+                invites.value = invites.value.filterNot { it.id == mutation.inviteId }
+                applyError(domainError)
+            } else {
+                applyError(domainError)
+            }
+            return
+        }
+        applyError(domainError)
+    }
+
+    private fun redactSelectedGroup(domainError: CollaborationError) {
+        selectedGroupId.value?.let { redactGroup(it, domainError) } ?: applyError(domainError)
+    }
+
+    private fun redactGroup(groupId: CollaborationGroupId, domainError: CollaborationError) {
+        refreshJob?.cancel()
+        detailRefreshJob?.cancel()
+        ++refreshGeneration
+        ++detailGeneration
+        groups.value = groups.value.filterNot { it.id == groupId }
+        memberCacheByGroupId.remove(groupId)
+        if (selectedGroupId.value == groupId) {
+            selectedGroupId.value = null
+            savedStateHandle[SELECTED_GROUP_ID_KEY] = null
+            members.value = emptyList()
+            detailLoadState.value = GroupsDetailLoadState.IDLE
+            detailError.value = null
+            detailAccessRestricted.value = false
+            dialog.value = null
+            pendingCreatedGroupId = null
+            effectsChannel.trySend(GroupsEffect.NavigateToList)
+        }
+        error.value = mapError(domainError)
+        isOffline.value = false
+        render()
     }
 
     private fun setDetailError(nextError: GroupsUiError?) {
@@ -674,8 +788,17 @@ class GroupsViewModel(
         val selected = selectedGroupId.value ?: return
         if (!refreshCompleted.value) return
         reconcilePendingCreatedGroup()
-        if (pendingCreatedGroupId == selected) return
-        if (groups.value.none { it.id == selected }) selectGroup(null)
+        if (groups.value.none { it.id == selected }) {
+            if (pendingCreatedGroupId != selected) selectGroup(null)
+            return
+        }
+        if (
+            memberCacheByGroupId[selected].isNullOrEmpty() &&
+            detailRefreshJob?.isActive != true &&
+            (detailLoadState.value == GroupsDetailLoadState.LOADING || detailError.value != null)
+        ) {
+            startDetailRefresh(selected)
+        }
     }
 
     private fun reconcilePendingCreatedGroup() {
@@ -702,7 +825,7 @@ class GroupsViewModel(
                 } else {
                     emptyMap()
                 },
-                currentUserId = currentUserId,
+                currentUserId = currentUserId.value,
                 currentUserRole = actorRole,
                 actorPermissions = actorPermissions,
                 memberActionsByMemberId = if (cachedPermissionsAreUsable()) {
@@ -736,8 +859,7 @@ class GroupsViewModel(
             )
         }
         val hasCachedData = groups.value.isNotEmpty()
-        val displayedError = if (
-            error.value == null &&
+        val displayedError = error.value ?: detailError.value ?: if (
             !isRefreshing.value &&
             pendingCreatedGroupId == selectedId &&
             selectedId != null &&
@@ -745,7 +867,7 @@ class GroupsViewModel(
         ) {
             GroupsUiError.NotFound
         } else {
-            error.value
+            null
         }
         val loadState = when {
             isRefreshing.value && hasCachedData -> GroupsLoadState.OFFLINE_REFRESHING
@@ -761,7 +883,9 @@ class GroupsViewModel(
             detailLoadState = detailLoadState.value,
             screen = if (selectedId == null) GroupsScreen.LIST else GroupsScreen.DETAIL,
             groups = groups.value,
-            pendingInvites = invites.value.filter { it.status == GroupInviteStatus.PENDING },
+            pendingInvites = invites.value.filter {
+                it.status == GroupInviteStatus.PENDING && it.inviteeUserId == currentUserId.value
+            },
             selectedGroupId = selectedId,
             selectedGroup = detail,
             dialog = dialog.value,

@@ -259,110 +259,72 @@ class GroupsScreenTest {
     }
 
     @Test
-    fun unauthorizedCachedDetailRendersReadOnlyWithoutMutationAffordances() {
+    fun unauthorizedDetailRedactionReturnsListWithoutPrivateContent() {
         val group = group("group-1", "Household")
-        val actor = member(group.id.value, "owner-1", GroupRole.OWNER)
-        val source = detailState(
-            group = group,
-            members = listOf(actor),
-            detailLoadState = GroupsDetailLoadState.CACHED_OFFLINE,
-            detailError = GroupsUiError.NotAuthorized
+        val source = GroupsUiState(
+            loadState = GroupsLoadState.ERROR,
+            error = GroupsUiError.NotAuthorized,
+            groups = emptyList(),
+            selectedGroupId = null,
+            selectedGroup = null
         )
         composeRule.setContent {
             SmartReminderTheme {
-                GroupDetailScreen(uiState = source, onAction = {})
+                GroupsListScreen(uiState = source, onAction = {})
             }
         }
 
-        composeRule.onAllNodesWithText("Household").assertCountEquals(2)
-        composeRule.onNodeWithText("Ari").assertIsDisplayed()
         composeRule.onNodeWithText(
             composeRule.activity.getString(R.string.groups_error_not_authorized)
         ).assertIsDisplayed()
-        listOf(
-            R.string.groups_edit_group,
-            R.string.groups_invite_member,
-            R.string.groups_leave_group,
-            R.string.groups_delete_group
-        ).forEach { label ->
-            composeRule.onAllNodesWithText(composeRule.activity.getString(label)).assertCountEquals(0)
-        }
+        composeRule.onAllNodesWithText("Household").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Ari").assertCountEquals(0)
     }
 
     @Test
-    fun notFoundCachedDetailRendersReadOnlyWithoutMutationAffordances() {
+    fun notFoundDetailRedactionReturnsListWithoutPrivateContent() {
         val group = group("group-1", "Household")
-        val actor = member(group.id.value, "owner-1", GroupRole.OWNER)
-        val source = detailState(
-            group = group,
-            members = listOf(actor),
-            detailLoadState = GroupsDetailLoadState.CACHED_OFFLINE,
-            detailError = GroupsUiError.NotFound
+        val source = GroupsUiState(
+            loadState = GroupsLoadState.ERROR,
+            error = GroupsUiError.NotFound,
+            groups = emptyList(),
+            selectedGroupId = null,
+            selectedGroup = null
         )
         composeRule.setContent {
             SmartReminderTheme {
-                GroupDetailScreen(uiState = source, onAction = {})
+                GroupsListScreen(uiState = source, onAction = {})
             }
         }
 
-        composeRule.onAllNodesWithText("Household").assertCountEquals(2)
-        composeRule.onNodeWithText("Ari").assertIsDisplayed()
         composeRule.onNodeWithText(
             composeRule.activity.getString(R.string.groups_error_not_found)
         ).assertIsDisplayed()
-        listOf(
-            R.string.groups_edit_group,
-            R.string.groups_invite_member,
-            R.string.groups_leave_group,
-            R.string.groups_delete_group
-        ).forEach { label ->
-            composeRule.onAllNodesWithText(composeRule.activity.getString(label)).assertCountEquals(0)
-        }
+        composeRule.onAllNodesWithText("Household").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Ari").assertCountEquals(0)
     }
 
     @Test
-    fun restrictedDetailRetryKeepsMutationActionsHiddenUntilAuthorizedSuccess() {
-        val group = group("group-1", "Household")
-        val actor = member(group.id.value, "owner-1", GroupRole.OWNER)
-        val restrictedState = detailState(
-            group = group,
-            members = listOf(actor),
-            detailLoadState = GroupsDetailLoadState.OFFLINE_REFRESHING,
-            isDetailAccessRestricted = true
+    fun revokedDetailRemainsRedactedInsteadOfRetainingAReadOnlyCopy() {
+        val state = GroupsUiState(
+            loadState = GroupsLoadState.ERROR,
+            error = GroupsUiError.NotAuthorized,
+            groups = emptyList(),
+            selectedGroupId = null,
+            selectedGroup = null,
+            detailLoadState = GroupsDetailLoadState.IDLE
         )
-        val state = mutableStateOf(restrictedState)
-
         composeRule.setContent {
             SmartReminderTheme {
-                GroupDetailScreen(uiState = state.value, onAction = {})
+                GroupsListScreen(uiState = state, onAction = {})
             }
         }
 
         composeRule.onNodeWithText(
-            composeRule.activity.getString(R.string.groups_offline_refreshing)
+            composeRule.activity.getString(R.string.groups_error_not_authorized)
         ).assertIsDisplayed()
-        listOf(
-            R.string.groups_edit_group,
-            R.string.groups_invite_member,
-            R.string.groups_leave_group,
-            R.string.groups_delete_group
-        ).forEach { label ->
-            composeRule.onAllNodesWithText(composeRule.activity.getString(label)).assertCountEquals(0)
-        }
-
-        state.value = restrictedState.copy(
-            detailLoadState = GroupsDetailLoadState.CONTENT,
-            isDetailAccessRestricted = false
-        )
-        composeRule.runOnIdle { }
-        listOf(
-            R.string.groups_edit_group,
-            R.string.groups_invite_member,
-            R.string.groups_leave_group,
-            R.string.groups_delete_group
-        ).forEach { label ->
-            composeRule.onNodeWithText(composeRule.activity.getString(label)).assertIsDisplayed()
-        }
+        composeRule.onAllNodesWithText("Household").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Ari").assertCountEquals(0)
     }
 
     @Test

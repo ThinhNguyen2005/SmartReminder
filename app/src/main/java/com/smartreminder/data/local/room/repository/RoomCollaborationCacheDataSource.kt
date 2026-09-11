@@ -61,6 +61,24 @@ class RoomCollaborationCacheDataSource(
     }
 
     override suspend fun removeGroup(groupId: String) {
-        dao.deleteGroup(groupId)
+        database.withTransaction {
+            dao.deleteGroup(groupId)
+            dao.deleteInvitesForGroup(groupId)
+        }
+    }
+
+    override suspend fun removeInvitesForGroup(groupId: String) {
+        dao.deleteInvitesForGroup(groupId)
+    }
+
+    override suspend fun removeInvite(inviteId: String) {
+        dao.deleteInviteById(inviteId)
+    }
+
+    override suspend fun clearAll() {
+        database.withTransaction {
+            dao.deleteAllInvites()
+            dao.deleteAllGroups()
+        }
     }
 }

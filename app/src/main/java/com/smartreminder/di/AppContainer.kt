@@ -24,6 +24,7 @@ import com.smartreminder.domain.repository.UserPreferencesCloudRepository
 import com.smartreminder.domain.repository.UserPreferencesRepository
 import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
 import com.smartreminder.ui.groups.GroupsViewModelFactory
+import kotlinx.coroutines.flow.map
 
 /**
  * Application-scoped manual DI container.
@@ -44,7 +45,8 @@ class AppContainer(private val context: Context) {
             localRepository = userPreferencesRepository,
             cloudRepository = userPreferencesCloudRepository,
             getCurrentUserId = { SupabaseManager.currentUserIdOrNull() },
-            signOutAuth = { SupabaseManager.signOut() }
+            signOutAuth = { SupabaseManager.signOut() },
+            clearCollaborationCache = { collaborationRepository.clearSessionCache() }
         )
     }
 
@@ -65,7 +67,10 @@ class AppContainer(private val context: Context) {
             cache = RoomCollaborationCacheDataSource(cueDatabase),
             remote = SupabaseCollaborationRemoteDataSource.configured(),
             network = ::hasValidatedNetwork,
-            getCurrentUserId = { SupabaseManager.currentUserIdOrNull()?.let(::UserId) }
+            getCurrentUserId = { SupabaseManager.currentUserIdOrNull()?.let(::UserId) },
+            observeUserId = {
+                SupabaseManager.observeCurrentUserId().map { it?.let(::UserId) }
+            }
         )
     }
 

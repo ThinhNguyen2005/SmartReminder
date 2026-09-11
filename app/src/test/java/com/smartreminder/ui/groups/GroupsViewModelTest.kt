@@ -107,6 +107,37 @@ class GroupsViewModelTest {
     }
 
     @Test
+    fun `when authenticated identity changes, then old offline cache and actor actions are reset`() = runTest {
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+        assertEquals(UserId("owner-1"), viewModel.uiState.value.selectedGroup?.currentUserId)
+
+        repository.currentUserId = UserId("account-b")
+        advanceUntilIdle()
+
+        val signedInAsB = viewModel.uiState.value
+        assertEquals(GroupsScreen.LIST, signedInAsB.screen)
+        assertTrue(signedInAsB.groups.isEmpty())
+        assertTrue(signedInAsB.pendingInvites.isEmpty())
+        assertNull(signedInAsB.selectedGroup)
+        assertNull(signedInAsB.selectedGroupId)
+        assertTrue(repository.clearSessionCacheCalls > 0)
+
+        repository.groups = listOf(group("group-b", "B private"))
+        repository.members = listOf(member("group-b", "account-b", GroupRole.MEMBER))
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-b")))
+        advanceUntilIdle()
+        val bDetail = viewModel.uiState.value.selectedGroup
+        assertEquals(UserId("account-b"), bDetail?.currentUserId)
+        assertEquals(GroupRole.MEMBER, bDetail?.currentUserRole)
+        assertFalse(bDetail?.actorPermissions?.canInviteMember == true)
+    }
+
+    @Test
     fun `given restored selected group, when it still exists, then detail is restored`() = runTest {
         val viewModel = GroupsViewModel(
             repository = repository,
@@ -123,6 +154,32 @@ class GroupsViewModelTest {
             viewModel.uiState.value.selectedGroup?.members
                 ?.any { it.userId == UserId("owner-1") } == true
         )
+    }
+
+    @Test
+    fun `given restored selected group without cached members, then detail refresh starts and resolves`() = runTest {
+        repository.members = emptyList()
+        val refreshCompletion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = refreshCompletion
+        val viewModel = GroupsViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(
+                mapOf(GroupsViewModel.SELECTED_GROUP_ID_KEY to "group-1")
+            )
+        )
+
+        advanceUntilIdle()
+
+        assertEquals(1, repository.refreshGroupCalls)
+        assertEquals(GroupsDetailLoadState.LOADING, viewModel.uiState.value.detailLoadState)
+
+        repository.members = listOf(member("group-1", "owner-1", GroupRole.OWNER))
+        refreshCompletion.complete(CollaborationMutationResult.Applied)
+        advanceUntilIdle()
+
+        assertEquals(GroupsDetailLoadState.CONTENT, viewModel.uiState.value.detailLoadState)
+        assertEquals(UserId("owner-1"), viewModel.uiState.value.selectedGroup?.currentUserId)
+        assertTrue(viewModel.uiState.value.selectedGroup?.actorPermissions != null)
     }
 
     @Test
@@ -206,6 +263,31 @@ class GroupsViewModelTest {
             GroupsEffect.NavigateToDetail(createdId),
             viewModel.effects.filter { it is GroupsEffect.NavigateToDetail }.first()
         )
+    }
+
+    @Test
+    fun `when create succeeds with cold detail cache, then new owner detail is refreshed`() = runTest {
+        val createdId = CollaborationGroupId("created-group")
+        repository.groups = listOf(group("group-1", "Household"), group(createdId.value, "Created"))
+        repository.members = emptyList()
+        repository.createGroupResult = CollaborationMutationResult.Created(createdId)
+        val detailRefresh = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[createdId] = detailRefresh
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.onAction(GroupsAction.CreateGroup("Created"))
+        advanceUntilIdle()
+        assertEquals(1, repository.refreshGroupCallsFor(createdId))
+        assertEquals(GroupsDetailLoadState.LOADING, viewModel.uiState.value.detailLoadState)
+
+        repository.members = listOf(member(createdId.value, "owner-1", GroupRole.OWNER))
+        detailRefresh.complete(CollaborationMutationResult.Applied)
+        advanceUntilIdle()
+
+        assertEquals(createdId, viewModel.uiState.value.selectedGroupId)
+        assertEquals(UserId("owner-1"), viewModel.uiState.value.selectedGroup?.currentUserId)
+        assertTrue(viewModel.uiState.value.selectedGroup?.actorPermissions?.canInviteMember == true)
     }
 
     @Test
@@ -481,6 +563,20 @@ class GroupsViewModelTest {
     }
 
     @Test
+    fun `when manager has outgoing pending invite, then it is not rendered as a response card`() = runTest {
+        repository.currentUserId = UserId("owner-1")
+        repository.invites = listOf(
+            invite("incoming", "group-1", inviteeUserId = "owner-1"),
+            invite("outgoing", "group-1", inviteeUserId = "member-1")
+        )
+        val viewModel = GroupsViewModel(repository)
+
+        advanceUntilIdle()
+
+        assertEquals(listOf(GroupInviteId("incoming")), viewModel.uiState.value.pendingInvites.map { it.id })
+    }
+
+    @Test
     fun `when membership actions are sent for selected group, then all typed commands delegate`() = runTest {
         val viewModel = GroupsViewModel(repository)
         advanceUntilIdle()
@@ -747,7 +843,7 @@ class GroupsViewModelTest {
     }
 
     @Test
-    fun `when cached detail refresh is unauthorized, then cached detail is read only`() = runTest {
+    fun `when cached detail refresh is unauthorized, then private detail is redacted`() = runTest {
         val completion = CompletableDeferred<CollaborationMutationResult>()
         repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = completion
 
@@ -762,27 +858,15 @@ class GroupsViewModelTest {
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
-        assertEquals(GroupsUiError.NotAuthorized, state.detailError)
-        assertEquals(2, state.selectedGroup?.members?.size)
-        assertNull(state.selectedGroup?.currentUserRole)
-        assertNull(state.selectedGroup?.actorPermissions)
-        assertTrue(state.selectedGroup?.permissionsByMemberId?.isEmpty() == true)
-        assertTrue(state.selectedGroup?.memberActionsByMemberId?.isEmpty() == true)
-        assertFalse(state.selectedGroup?.canLeaveGroup == true)
-        listOf<GroupsAction>(
-            GroupsAction.OpenUpdateGroupDialog,
-            GroupsAction.OpenInviteMemberDialog,
-            GroupsAction.OpenLeaveGroupDialog,
-            GroupsAction.OpenDeleteGroupDialog,
-            GroupsAction.OpenChangeMemberRoleDialog(UserId("member-1"))
-        ).forEach { action ->
-            viewModel.onAction(action)
-            assertNull(viewModel.uiState.value.dialog)
-        }
+        assertEquals(GroupsScreen.LIST, state.screen)
+        assertNull(state.selectedGroup)
+        assertNull(state.selectedGroupId)
+        assertFalse(state.groups.any { it.id == CollaborationGroupId("group-1") })
+        assertEquals(GroupsUiError.NotAuthorized, state.error)
     }
 
     @Test
-    fun `when cached detail is not found, then cached detail is read only`() = runTest {
+    fun `when cached detail is not found, then private detail is redacted`() = runTest {
         val completion = CompletableDeferred<CollaborationMutationResult>()
         repository.refreshGroupCompletions[CollaborationGroupId("group-1")] = completion
 
@@ -797,23 +881,11 @@ class GroupsViewModelTest {
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
-        assertEquals(GroupsUiError.NotFound, state.detailError)
-        assertEquals(2, state.selectedGroup?.members?.size)
-        assertNull(state.selectedGroup?.currentUserRole)
-        assertNull(state.selectedGroup?.actorPermissions)
-        assertTrue(state.selectedGroup?.permissionsByMemberId?.isEmpty() == true)
-        assertTrue(state.selectedGroup?.memberActionsByMemberId?.isEmpty() == true)
-        assertFalse(state.selectedGroup?.canLeaveGroup == true)
-        listOf<GroupsAction>(
-            GroupsAction.OpenUpdateGroupDialog,
-            GroupsAction.OpenInviteMemberDialog,
-            GroupsAction.OpenLeaveGroupDialog,
-            GroupsAction.OpenDeleteGroupDialog,
-            GroupsAction.OpenChangeMemberRoleDialog(UserId("member-1"))
-        ).forEach { action ->
-            viewModel.onAction(action)
-            assertNull(viewModel.uiState.value.dialog)
-        }
+        assertEquals(GroupsScreen.LIST, state.screen)
+        assertNull(state.selectedGroup)
+        assertNull(state.selectedGroupId)
+        assertFalse(state.groups.any { it.id == CollaborationGroupId("group-1") })
+        assertEquals(GroupsUiError.NotFound, state.error)
     }
 
     @Test
@@ -837,7 +909,7 @@ class GroupsViewModelTest {
     }
 
     @Test
-    fun `when restricted detail retry is pending, then actions stay locked until authorized success`() = runTest {
+    fun `when detail access is revoked, then cache is removed and no retry can expose it`() = runTest {
         val groupId = CollaborationGroupId("group-1")
         val initialRefresh = CompletableDeferred<CollaborationMutationResult>()
         repository.refreshGroupCompletions[groupId] = initialRefresh
@@ -851,44 +923,11 @@ class GroupsViewModelTest {
             CollaborationMutationResult.NotAuthorized(CollaborationError.NotAuthorized)
         )
         advanceUntilIdle()
-        assertTrue(viewModel.uiState.value.isDetailAccessRestricted)
-
-        val retryRefresh = CompletableDeferred<CollaborationMutationResult>()
-        repository.refreshGroupCompletions[groupId] = retryRefresh
-        viewModel.onAction(GroupsAction.OpenGroup(groupId))
-        runCurrent()
-
-        val pendingState = viewModel.uiState.value
-        assertTrue(pendingState.isDetailAccessRestricted)
-        assertEquals(GroupsDetailLoadState.OFFLINE_REFRESHING, pendingState.detailLoadState)
-        assertNull(pendingState.selectedGroup?.actorPermissions)
-        assertTrue(pendingState.selectedGroup?.memberActionsByMemberId?.isEmpty() == true)
-        assertFalse(pendingState.selectedGroup?.canLeaveGroup == true)
-
-        retryRefresh.complete(CollaborationMutationResult.Applied)
-        advanceUntilIdle()
-
-        val restoredState = viewModel.uiState.value
-        assertFalse(restoredState.isDetailAccessRestricted)
-        assertNull(restoredState.detailError)
-        assertNotNull(restoredState.selectedGroup?.actorPermissions)
-        assertTrue(restoredState.selectedGroup?.memberActionsByMemberId?.isNotEmpty() == true)
-
-        val repeatedDenial = CompletableDeferred<CollaborationMutationResult>()
-        repository.refreshGroupCompletions[groupId] = repeatedDenial
-        viewModel.onAction(GroupsAction.OpenGroup(groupId))
-        runCurrent()
-        repeatedDenial.complete(
-            CollaborationMutationResult.NotAuthorized(CollaborationError.NotAuthorized)
-        )
-        advanceUntilIdle()
-
-        val deniedAgain = viewModel.uiState.value
-        assertTrue(deniedAgain.isDetailAccessRestricted)
-        assertEquals(GroupsUiError.NotAuthorized, deniedAgain.detailError)
-        assertNull(deniedAgain.selectedGroup?.actorPermissions)
-        assertTrue(deniedAgain.selectedGroup?.memberActionsByMemberId?.isEmpty() == true)
-        assertFalse(deniedAgain.selectedGroup?.canLeaveGroup == true)
+        val deniedState = viewModel.uiState.value
+        assertEquals(GroupsScreen.LIST, deniedState.screen)
+        assertNull(deniedState.selectedGroup)
+        assertFalse(deniedState.groups.any { it.id == groupId })
+        assertEquals(GroupsUiError.NotAuthorized, deniedState.error)
     }
 
     @Test
@@ -1119,7 +1158,13 @@ private class FakeCollaborationRepository(
     private val invitesFlow = MutableStateFlow(invites)
     private val membersFlow = MutableStateFlow(members)
 
+    private val identityFlow = MutableStateFlow(currentUserId)
     var currentUserId: UserId? = currentUserId
+        set(value) {
+            field = value
+            identityFlow.value = value
+        }
+    var clearSessionCacheCalls: Int = 0
 
     var members: List<GroupMember>
         get() = membersFlow.value
@@ -1133,10 +1178,19 @@ private class FakeCollaborationRepository(
             groupsFlow.value = value
         }
 
+    var invites: List<GroupInvite>
+        get() = invitesFlow.value
+        set(value) {
+            invitesFlow.value = value
+        }
+
     var refreshGroupsResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var refreshGroupsCompletion: CompletableDeferred<CollaborationMutationResult>? = null
     var refreshGroupsFailure: Throwable? = null
     var refreshGroupsCancelled: Boolean = false
+    var refreshGroupCalls: Int = 0
+        private set
+    private val refreshGroupCallCounts = mutableMapOf<CollaborationGroupId, Int>()
     var createGroupCompletion: CompletableDeferred<CollaborationMutationResult>? = null
     var createGroupResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var cancelCreateGroup: Boolean = false
@@ -1164,6 +1218,15 @@ private class FakeCollaborationRepository(
 
     override fun currentUserId(): UserId? = currentUserId
 
+    override fun observeCurrentUserId(): Flow<UserId?> = identityFlow.asStateFlow()
+
+    override suspend fun clearSessionCache() {
+        clearSessionCacheCalls += 1
+        groupsFlow.value = emptyList()
+        invitesFlow.value = emptyList()
+        membersFlow.value = emptyList()
+    }
+
     override suspend fun refreshGroups(): CollaborationMutationResult {
         refreshGroupsCalls += 1
         refreshGroupsFailure?.let { throw it }
@@ -1176,11 +1239,15 @@ private class FakeCollaborationRepository(
     }
 
     override suspend fun refreshGroup(groupId: CollaborationGroupId): CollaborationMutationResult = try {
+        refreshGroupCalls += 1
+        refreshGroupCallCounts[groupId] = refreshGroupCallCounts.getOrDefault(groupId, 0) + 1
         refreshGroupCompletions[groupId]?.await() ?: CollaborationMutationResult.Applied
     } catch (cancelled: CancellationException) {
         refreshGroupCancelled += groupId
         throw cancelled
     }
+
+    fun refreshGroupCallsFor(groupId: CollaborationGroupId): Int = refreshGroupCallCounts.getOrDefault(groupId, 0)
 
     override suspend fun refreshInvites() = CollaborationMutationResult.Applied
 
@@ -1269,11 +1336,11 @@ private fun member(groupId: String, userId: String, role: GroupRole) = GroupMemb
     displayName = userId
 )
 
-private fun invite(id: String, groupId: String) = GroupInvite(
+private fun invite(id: String, groupId: String, inviteeUserId: String = "owner-1") = GroupInvite(
     id = GroupInviteId(id),
     groupId = CollaborationGroupId(groupId),
     inviterId = UserId("owner-1"),
-    inviteeUserId = UserId("member-1"),
+    inviteeUserId = UserId(inviteeUserId),
     status = GroupInviteStatus.PENDING,
     createdAt = Instant.parse("2026-09-10T00:00:00Z")
 )

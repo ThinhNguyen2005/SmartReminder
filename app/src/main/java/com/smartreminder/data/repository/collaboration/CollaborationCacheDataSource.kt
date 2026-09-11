@@ -21,4 +21,13 @@ interface CollaborationCacheDataSource {
     )
     suspend fun replaceInvites(invites: List<CachedGroupInviteEntity>)
     suspend fun removeGroup(groupId: String)
+
+    /** Removes all collaboration rows at an authenticated-session boundary. */
+    suspend fun clearAll() = Unit
+
+    /** Removes invite rows that could otherwise outlive a revoked group membership. */
+    suspend fun removeInvitesForGroup(groupId: String) = Unit
+
+    /** Removes one invite after a response or explicit invite revocation. */
+    suspend fun removeInvite(inviteId: String) = Unit
 }

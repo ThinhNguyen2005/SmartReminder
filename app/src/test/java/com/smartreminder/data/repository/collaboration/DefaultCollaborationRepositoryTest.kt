@@ -28,6 +28,8 @@ import com.smartreminder.domain.repository.TransferOwnershipCommand
 import com.smartreminder.domain.repository.UpdateGroupCommand
 import com.smartreminder.domain.model.collaboration.GroupRole
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -70,6 +72,35 @@ class DefaultCollaborationRepositoryTest {
             listOf("Cached group"),
             repository.observeGroups().first().map { it.name }
         )
+    }
+
+    @Test
+    fun `session boundary clear removes all collaboration cache rows`() = runTest {
+        val groupId = CollaborationGroupId("group-a")
+        val cache = FakeCollaborationCache(
+            groups = listOf(cachedGroup(groupId.value, "A private")),
+            members = listOf(
+                CachedGroupMemberEntity(
+                    groupId = groupId.value,
+                    userId = "a",
+                    role = "OWNER",
+                    joinedAt = 1L
+                )
+            ),
+            invites = listOf(cachedInvite("invite-a", groupId.value))
+        )
+        val repository = DefaultCollaborationRepository(
+            cache = cache,
+            remote = FakeCollaborationRemoteDataSource(),
+            network = { false },
+            getCurrentUserId = { UserId("account-a") }
+        )
+
+        repository.clearSessionCache()
+
+        assertTrue(repository.observeGroups().first().isEmpty())
+        assertTrue(repository.observeMembers(groupId).first().isEmpty())
+        assertTrue(repository.observeInvites().first().isEmpty())
     }
 
     @Test
@@ -122,6 +153,79 @@ class DefaultCollaborationRepositoryTest {
         assertTrue(result is CollaborationMutationResult.Failure)
         assertEquals("Keep me", repository.observeGroup(CollaborationGroupId("group-1")).first()?.name)
         assertEquals(0, cache.replaceGroupCalls)
+    }
+
+    @Test
+    fun `when a pre-mutation detail response completes last, it cannot overwrite post-mutation cache`() = runTest {
+        val groupId = CollaborationGroupId("group-1")
+        val remote = DeferredRaceRemoteDataSource()
+        val cache = FakeCollaborationCache()
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        val staleRefresh = async { repository.refreshGroup(groupId) }
+        remote.staleGroupFetchStarted.await()
+
+        val mutation = async {
+            repository.changeMemberRole(
+                ChangeMemberRoleCommand(groupId, UserId("member-1"), GroupRole.ADMIN)
+            )
+        }
+        assertEquals(CollaborationMutationResult.Applied, mutation.await())
+
+        remote.staleGroupFetchCompletion.complete(Unit)
+        assertEquals(CollaborationMutationResult.Applied, staleRefresh.await())
+
+        assertEquals(
+            GroupRole.ADMIN,
+            repository.observeMembers(groupId).first().single().role
+        )
+    }
+
+    @Test
+    fun `when detail refresh returns no group, then group and related invites are evicted`() = runTest {
+        val groupId = CollaborationGroupId("group-1")
+        val cache = FakeCollaborationCache(
+            groups = listOf(cachedGroup(groupId.value, "Private")),
+            invites = listOf(cachedInvite("invite-1", groupId.value))
+        )
+        val repository = DefaultCollaborationRepository(
+            cache = cache,
+            remote = FakeCollaborationRemoteDataSource().apply { groups = emptyList() },
+            network = { true }
+        )
+
+        assertEquals(
+            CollaborationMutationResult.Failure(CollaborationError.NotFound),
+            repository.refreshGroup(groupId)
+        )
+        assertTrue(repository.observeGroups().first().isEmpty())
+        assertTrue(repository.observeInvites().first().isEmpty())
+    }
+
+    @Test
+    fun `when leave applies but follow-up refresh fails, then known group is evicted immediately`() = runTest {
+        val groupId = CollaborationGroupId("group-1")
+        val cache = FakeCollaborationCache(groups = listOf(cachedGroup(groupId.value, "Private")))
+        val remote = FakeCollaborationRemoteDataSource().apply {
+            groupsFailure = IllegalStateException("offline after leave")
+        }
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        assertEquals(CollaborationMutationResult.Applied, repository.leaveGroup(groupId))
+        assertTrue(repository.observeGroups().first().isEmpty())
+    }
+
+    @Test
+    fun `G2 membership rejects queued envelopes as a non-success result`() = runTest {
+        val remote = FakeCollaborationRemoteDataSource().apply {
+            createGroupEnvelope = CollaborationMutationEnvelopeRemoteDto(status = "QUEUED")
+        }
+        val repository = DefaultCollaborationRepository(FakeCollaborationCache(), remote) { true }
+
+        val result = repository.createGroup(CreateGroupCommand("Queued"))
+
+        assertTrue(result is CollaborationMutationResult.Failure)
+        assertTrue((result as CollaborationMutationResult.Failure).error is CollaborationError.InvalidState)
     }
 
     @Test
@@ -435,6 +539,16 @@ class DefaultCollaborationRepositoryTest {
         createdAt = "2026-09-10T10:00:00Z",
         updatedAt = "2026-09-10T10:00:00Z"
     )
+
+    private fun cachedInvite(id: String, groupId: String) = CachedGroupInviteEntity(
+        id = id,
+        groupId = groupId,
+        inviterId = "owner-1",
+        inviteeUserId = "member-1",
+        status = "PENDING",
+        createdAt = 1L,
+        respondedAt = null
+    )
 }
 
 private class FakeCollaborationCache(
@@ -501,6 +615,71 @@ private class FakeCollaborationCache(
         groupFlow.value = groupFlow.value.filterNot { it.id == groupId }
         groupDetails[groupId]?.value = null
     }
+
+    override suspend fun removeInvitesForGroup(groupId: String) {
+        inviteFlow.value = inviteFlow.value.filterNot { it.groupId == groupId }
+    }
+
+    override suspend fun removeInvite(inviteId: String) {
+        inviteFlow.value = inviteFlow.value.filterNot { it.id == inviteId }
+    }
+
+    override suspend fun clearAll() {
+        groupFlow.value = emptyList()
+        groupDetails.values.forEach { it.value = null }
+        memberFlows.values.forEach { it.value = emptyList() }
+        inviteFlow.value = emptyList()
+    }
+}
+
+private class DeferredRaceRemoteDataSource : CollaborationRemoteDataSource {
+    val staleGroupFetchStarted = CompletableDeferred<Unit>()
+    val staleGroupFetchCompletion = CompletableDeferred<Unit>()
+    private var fetchGroupCalls = 0
+
+    private val group = CollaborationGroupRemoteDto(
+        id = "group-1",
+        name = "Group",
+        description = null,
+        createdBy = "owner-1",
+        createdAt = "2026-09-10T10:00:00Z",
+        updatedAt = "2026-09-10T10:00:00Z"
+    )
+
+    override suspend fun fetchGroups() = listOf(group)
+
+    override suspend fun fetchGroup(groupId: String): CollaborationGroupRemoteDto {
+        fetchGroupCalls += 1
+        if (fetchGroupCalls == 1) {
+            staleGroupFetchStarted.complete(Unit)
+            staleGroupFetchCompletion.await()
+        }
+        return group
+    }
+
+    override suspend fun fetchMembers(groupId: String) = listOf(
+        CollaborationMemberRemoteDto(
+            groupId = groupId,
+            userId = "member-1",
+            role = if (fetchGroupCalls == 1) "MEMBER" else "ADMIN",
+            joinedAt = "2026-09-10T10:00:00Z"
+        )
+    )
+
+    override suspend fun fetchInvites() = emptyList<CollaborationInviteRemoteDto>()
+
+    override suspend fun createGroup(command: CreateGroupCommand) = applied()
+    override suspend fun updateGroup(command: UpdateGroupCommand) = applied()
+    override suspend fun inviteMember(command: InviteMemberCommand) = applied()
+    override suspend fun acceptInvite(command: AcceptInviteCommand) = applied()
+    override suspend fun declineInvite(command: com.smartreminder.domain.repository.DeclineInviteCommand) = applied()
+    override suspend fun changeMemberRole(command: ChangeMemberRoleCommand) = applied()
+    override suspend fun removeMember(command: RemoveMemberCommand) = applied()
+    override suspend fun transferOwnership(command: com.smartreminder.domain.repository.TransferOwnershipCommand) = applied()
+    override suspend fun leaveGroup(command: LeaveGroupCommand) = applied()
+    override suspend fun deleteGroup(command: DeleteGroupCommand) = applied()
+
+    private fun applied() = CollaborationMutationEnvelopeRemoteDto(status = "APPLIED")
 }
 
 private class FakeCollaborationRemoteDataSource : CollaborationRemoteDataSource {
