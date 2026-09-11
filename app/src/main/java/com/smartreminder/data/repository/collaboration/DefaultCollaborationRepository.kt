@@ -183,7 +183,7 @@ class DefaultCollaborationRepository(
         executeMutation(
             action = { remote.acceptInvite(AcceptInviteCommand(inviteId)) },
             afterApplied = { envelope ->
-                cache.removeInvite(inviteId.value)
+                evictInvite(inviteId)
                 refreshInvitesAndAffectedGroup(envelope)
             },
             affectedInviteId = inviteId
@@ -193,7 +193,7 @@ class DefaultCollaborationRepository(
         executeMutation(
             action = { remote.declineInvite(DeclineInviteCommand(inviteId)) },
             afterApplied = { envelope ->
-                cache.removeInvite(inviteId.value)
+                evictInvite(inviteId)
                 refreshInvitesAndAffectedGroup(envelope)
             },
             affectedInviteId = inviteId
@@ -291,13 +291,18 @@ class DefaultCollaborationRepository(
                 }
             } else if (result.isAccessLoss()) {
                 if (affectedGroupId != null) evictGroup(affectedGroupId)
-                if (affectedInviteId != null) cache.removeInvite(affectedInviteId.value)
+                if (affectedInviteId != null) evictInvite(affectedInviteId)
             }
             result
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            networkFailure(failure)
+            val result = networkFailure(failure)
+            if (result.isAccessLoss()) {
+                if (affectedGroupId != null) evictGroup(affectedGroupId)
+                if (affectedInviteId != null) evictInvite(affectedInviteId)
+            }
+            result
         }
     }
 
@@ -365,6 +370,7 @@ class DefaultCollaborationRepository(
     private suspend fun evictGroupIfCurrent(generation: Long, groupId: CollaborationGroupId) {
         cacheWriteMutex.withLock {
             if (cacheGeneration == generation) {
+                cacheGeneration += 1
                 cache.removeGroup(groupId.value)
                 cache.removeInvitesForGroup(groupId.value)
             }
@@ -373,8 +379,16 @@ class DefaultCollaborationRepository(
 
     private suspend fun evictGroup(groupId: CollaborationGroupId) {
         cacheWriteMutex.withLock {
+            cacheGeneration += 1
             cache.removeGroup(groupId.value)
             cache.removeInvitesForGroup(groupId.value)
+        }
+    }
+
+    private suspend fun evictInvite(inviteId: GroupInviteId) {
+        cacheWriteMutex.withLock {
+            cacheGeneration += 1
+            cache.removeInvite(inviteId.value)
         }
     }
 

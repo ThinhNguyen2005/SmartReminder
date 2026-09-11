@@ -1,5 +1,21 @@
 package com.smartreminder.data.repository.collaboration
 
+import io.github.jan.supabase.exceptions.RestException
+import io.ktor.client.HttpClient
+import io.ktor.client.call.HttpClientCall
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.request.HttpRequestData
+import io.ktor.client.request.HttpResponseData
+import io.ktor.client.utils.EmptyContent
+import io.ktor.http.Headers
+import io.ktor.http.HttpMethod
+import io.ktor.http.HttpProtocolVersion
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
+import io.ktor.util.Attributes
+import io.ktor.util.date.GMTDate
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.InternalAPI
 import com.smartreminder.data.local.room.entity.collaboration.CachedCollaborationGroupEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupInviteEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupMemberEntity
@@ -35,6 +51,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.SupervisorJob
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -226,6 +243,118 @@ class DefaultCollaborationRepositoryTest {
 
         assertTrue(result is CollaborationMutationResult.Failure)
         assertTrue((result as CollaborationMutationResult.Failure).error is CollaborationError.InvalidState)
+    }
+
+    @Test
+    fun `transport authorization loss evicts the affected group and related invites`() = runTest {
+        listOf(
+            401 to CollaborationError.NotAuthorized,
+            403 to CollaborationError.NotAuthorized,
+            404 to CollaborationError.NotFound
+        ).forEach { (status, expectedError) ->
+            val groupId = CollaborationGroupId("group-$status")
+            val cache = FakeCollaborationCache(
+                groups = listOf(cachedGroup(groupId.value, "Private")),
+                invites = listOf(cachedInvite("invite-$status", groupId.value))
+            )
+            val remote = FakeCollaborationRemoteDataSource().apply {
+                updateGroupFailure = transportFailure(status)
+            }
+            val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+            val result = repository.updateGroup(UpdateGroupCommand(groupId, "Renamed"))
+
+            assertEquals(CollaborationMutationResult.Failure(expectedError), result)
+            assertTrue(repository.observeGroups().first().isEmpty())
+            assertTrue(repository.observeInvites().first().isEmpty())
+        }
+    }
+
+    @Test
+    fun `transport authorization loss evicts the responded invite`() = runTest {
+        listOf(
+            401 to CollaborationError.NotAuthorized,
+            403 to CollaborationError.NotAuthorized,
+            404 to CollaborationError.NotFound
+        ).forEach { (status, expectedError) ->
+            val inviteId = GroupInviteId("invite-$status")
+            val cache = FakeCollaborationCache(
+                invites = listOf(cachedInvite(inviteId.value, "group-1"))
+            )
+            val remote = FakeCollaborationRemoteDataSource().apply {
+                acceptInviteFailure = transportFailure(status)
+            }
+            val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+            val result = repository.acceptInvite(inviteId)
+
+            assertEquals(CollaborationMutationResult.Failure(expectedError), result)
+            assertTrue(repository.observeInvites().first().isEmpty())
+        }
+    }
+
+    @Test
+    fun `transport network failure retains cached group and invite`() = runTest {
+        val groupId = CollaborationGroupId("group-1")
+        val cache = FakeCollaborationCache(
+            groups = listOf(cachedGroup(groupId.value, "Private")),
+            invites = listOf(cachedInvite("invite-1", groupId.value))
+        )
+        val remote = FakeCollaborationRemoteDataSource().apply {
+            updateGroupFailure = transportFailure(500)
+        }
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        val result = repository.updateGroup(UpdateGroupCommand(groupId, "Renamed"))
+
+        assertTrue(result is CollaborationMutationResult.Failure)
+        assertTrue((result as CollaborationMutationResult.Failure).error is CollaborationError.NetworkUnavailable)
+        assertEquals(listOf(groupId), repository.observeGroups().first().map { it.id })
+        assertEquals(listOf(GroupInviteId("invite-1")), repository.observeInvites().first().map { it.id })
+    }
+
+    @Test
+    fun `concurrent invite refresh completing after accept cannot reinsert responded invite`() = runTest {
+        val inviteId = GroupInviteId("invite-1")
+        val cache = FakeCollaborationCache(
+            invites = listOf(cachedInvite(inviteId.value, "group-1"))
+        )
+        val remote = DeferredInviteRaceRemoteDataSource(inviteId)
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        val accept = async { repository.acceptInvite(inviteId) }
+        remote.acceptStarted.await()
+        val staleRefresh = async { repository.refreshInvites() }
+        remote.staleRefreshStarted.await()
+
+        remote.acceptCompletion.complete(Unit)
+        assertEquals(CollaborationMutationResult.Applied, accept.await())
+
+        remote.staleRefreshCompletion.complete(Unit)
+        assertEquals(CollaborationMutationResult.Applied, staleRefresh.await())
+        assertTrue(repository.observeInvites().first().isEmpty())
+    }
+
+    @Test
+    fun `concurrent invite refresh completing after decline cannot reinsert denied invite`() = runTest {
+        val inviteId = GroupInviteId("invite-1")
+        val cache = FakeCollaborationCache(
+            invites = listOf(cachedInvite(inviteId.value, "group-1"))
+        )
+        val remote = DeferredInviteRaceRemoteDataSource(inviteId)
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        val decline = async { repository.declineInvite(inviteId) }
+        remote.declineStarted.await()
+        val staleRefresh = async { repository.refreshInvites() }
+        remote.staleRefreshStarted.await()
+
+        remote.declineCompletion.complete(Unit)
+        assertEquals(CollaborationMutationResult.Applied, decline.await())
+
+        remote.staleRefreshCompletion.complete(Unit)
+        assertEquals(CollaborationMutationResult.Applied, staleRefresh.await())
+        assertTrue(repository.observeInvites().first().isEmpty())
     }
 
     @Test
@@ -549,6 +678,29 @@ class DefaultCollaborationRepositoryTest {
         createdAt = 1L,
         respondedAt = null
     )
+
+    @OptIn(InternalAPI::class)
+    private fun transportFailure(status: Int): RestException {
+        val client = HttpClient(OkHttp)
+        val requestData = HttpRequestData(
+            url = Url("https://example.test"),
+            method = HttpMethod.Post,
+            headers = Headers.Empty,
+            body = EmptyContent,
+            executionContext = SupervisorJob(),
+            attributes = Attributes()
+        )
+        val responseData = HttpResponseData(
+            statusCode = HttpStatusCode.fromValue(status),
+            requestTime = GMTDate(),
+            headers = Headers.Empty,
+            version = HttpProtocolVersion.HTTP_1_1,
+            body = ByteReadChannel.Empty,
+            callContext = SupervisorJob()
+        )
+        val response = HttpClientCall(client, requestData, responseData).response
+        return RestException("transport", null, response).also { client.close() }
+    }
 }
 
 private class FakeCollaborationCache(
@@ -689,6 +841,8 @@ private class FakeCollaborationRemoteDataSource : CollaborationRemoteDataSource 
     var groupFailure: Throwable? = null
     var invitesFailure: Throwable? = null
     var createGroupFailure: Throwable? = null
+    var updateGroupFailure: Throwable? = null
+    var acceptInviteFailure: Throwable? = null
     var createGroupEnvelope: CollaborationMutationEnvelopeRemoteDto = applied()
     var createGroupCalls: Int = 0
     var fetchGroupsCalls: Int = 0
@@ -725,6 +879,7 @@ private class FakeCollaborationRemoteDataSource : CollaborationRemoteDataSource 
 
     override suspend fun updateGroup(command: UpdateGroupCommand): CollaborationMutationEnvelopeRemoteDto {
         mutationCalls += "updateGroup"
+        updateGroupFailure?.let { throw it }
         return applied()
     }
 
@@ -735,6 +890,7 @@ private class FakeCollaborationRemoteDataSource : CollaborationRemoteDataSource 
 
     override suspend fun acceptInvite(command: AcceptInviteCommand): CollaborationMutationEnvelopeRemoteDto {
         mutationCalls += "acceptInvite"
+        acceptInviteFailure?.let { throw it }
         return applied()
     }
 
@@ -767,6 +923,67 @@ private class FakeCollaborationRemoteDataSource : CollaborationRemoteDataSource 
         mutationCalls += "deleteGroup"
         return applied()
     }
+
+    private fun applied() = CollaborationMutationEnvelopeRemoteDto(status = "APPLIED")
+}
+
+private class DeferredInviteRaceRemoteDataSource(
+    private val inviteId: GroupInviteId
+) : CollaborationRemoteDataSource {
+    val acceptStarted = CompletableDeferred<Unit>()
+    val acceptCompletion = CompletableDeferred<Unit>()
+    val declineStarted = CompletableDeferred<Unit>()
+    val declineCompletion = CompletableDeferred<Unit>()
+    val staleRefreshStarted = CompletableDeferred<Unit>()
+    val staleRefreshCompletion = CompletableDeferred<Unit>()
+    private var fetchInvitesCalls = 0
+
+    override suspend fun fetchGroups() = emptyList<CollaborationGroupRemoteDto>()
+
+    override suspend fun fetchGroup(groupId: String): CollaborationGroupRemoteDto? = null
+
+    override suspend fun fetchMembers(groupId: String) = emptyList<CollaborationMemberRemoteDto>()
+
+    override suspend fun fetchInvites(): List<CollaborationInviteRemoteDto> {
+        fetchInvitesCalls += 1
+        if (fetchInvitesCalls == 1) {
+            staleRefreshStarted.complete(Unit)
+            staleRefreshCompletion.await()
+            return listOf(
+                CollaborationInviteRemoteDto(
+                    id = inviteId.value,
+                    groupId = "group-1",
+                    inviterId = "owner-1",
+                    inviteeUserId = "member-1",
+                    status = "PENDING",
+                    createdAt = "2026-09-10T10:00:00Z",
+                    respondedAt = null
+                )
+            )
+        }
+        return emptyList()
+    }
+
+    override suspend fun createGroup(command: CreateGroupCommand) = applied()
+    override suspend fun updateGroup(command: UpdateGroupCommand) = applied()
+    override suspend fun inviteMember(command: InviteMemberCommand) = applied()
+
+    override suspend fun acceptInvite(command: AcceptInviteCommand): CollaborationMutationEnvelopeRemoteDto {
+        acceptStarted.complete(Unit)
+        acceptCompletion.await()
+        return applied()
+    }
+
+    override suspend fun declineInvite(command: com.smartreminder.domain.repository.DeclineInviteCommand): CollaborationMutationEnvelopeRemoteDto {
+        declineStarted.complete(Unit)
+        declineCompletion.await()
+        return applied()
+    }
+    override suspend fun changeMemberRole(command: ChangeMemberRoleCommand) = applied()
+    override suspend fun removeMember(command: RemoveMemberCommand) = applied()
+    override suspend fun transferOwnership(command: TransferOwnershipCommand) = applied()
+    override suspend fun leaveGroup(command: LeaveGroupCommand) = applied()
+    override suspend fun deleteGroup(command: DeleteGroupCommand) = applied()
 
     private fun applied() = CollaborationMutationEnvelopeRemoteDto(status = "APPLIED")
 }
