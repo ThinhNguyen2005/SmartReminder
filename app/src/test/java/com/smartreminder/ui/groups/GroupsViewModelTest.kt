@@ -837,6 +837,61 @@ class GroupsViewModelTest {
     }
 
     @Test
+    fun `when restricted detail retry is pending, then actions stay locked until authorized success`() = runTest {
+        val groupId = CollaborationGroupId("group-1")
+        val initialRefresh = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[groupId] = initialRefresh
+
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(groupId))
+        runCurrent()
+
+        initialRefresh.complete(
+            CollaborationMutationResult.NotAuthorized(CollaborationError.NotAuthorized)
+        )
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isDetailAccessRestricted)
+
+        val retryRefresh = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[groupId] = retryRefresh
+        viewModel.onAction(GroupsAction.OpenGroup(groupId))
+        runCurrent()
+
+        val pendingState = viewModel.uiState.value
+        assertTrue(pendingState.isDetailAccessRestricted)
+        assertEquals(GroupsDetailLoadState.OFFLINE_REFRESHING, pendingState.detailLoadState)
+        assertNull(pendingState.selectedGroup?.actorPermissions)
+        assertTrue(pendingState.selectedGroup?.memberActionsByMemberId?.isEmpty() == true)
+        assertFalse(pendingState.selectedGroup?.canLeaveGroup == true)
+
+        retryRefresh.complete(CollaborationMutationResult.Applied)
+        advanceUntilIdle()
+
+        val restoredState = viewModel.uiState.value
+        assertFalse(restoredState.isDetailAccessRestricted)
+        assertNull(restoredState.detailError)
+        assertNotNull(restoredState.selectedGroup?.actorPermissions)
+        assertTrue(restoredState.selectedGroup?.memberActionsByMemberId?.isNotEmpty() == true)
+
+        val repeatedDenial = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshGroupCompletions[groupId] = repeatedDenial
+        viewModel.onAction(GroupsAction.OpenGroup(groupId))
+        runCurrent()
+        repeatedDenial.complete(
+            CollaborationMutationResult.NotAuthorized(CollaborationError.NotAuthorized)
+        )
+        advanceUntilIdle()
+
+        val deniedAgain = viewModel.uiState.value
+        assertTrue(deniedAgain.isDetailAccessRestricted)
+        assertEquals(GroupsUiError.NotAuthorized, deniedAgain.detailError)
+        assertNull(deniedAgain.selectedGroup?.actorPermissions)
+        assertTrue(deniedAgain.selectedGroup?.memberActionsByMemberId?.isEmpty() == true)
+        assertFalse(deniedAgain.selectedGroup?.canLeaveGroup == true)
+    }
+
+    @Test
     fun `when create validation fails, then dialog keeps localized error until input or dismissal clears it`() = runTest {
         val viewModel = GroupsViewModel(repository)
         advanceUntilIdle()

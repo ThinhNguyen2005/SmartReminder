@@ -576,6 +576,7 @@ fun GroupDetailScreen(
         return
     }
     val detail = if (
+        uiState.isDetailAccessRestricted ||
         uiState.detailError is GroupsUiError.NotAuthorized ||
         uiState.detailError is GroupsUiError.NotFound
     ) {

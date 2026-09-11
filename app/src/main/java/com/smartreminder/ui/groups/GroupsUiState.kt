@@ -142,7 +142,8 @@ data class GroupsUiState(
     val isOffline: Boolean = false,
     val isRefreshing: Boolean = false,
     val detailLoadState: GroupsDetailLoadState = GroupsDetailLoadState.IDLE,
-    val detailError: GroupsUiError? = null
+    val detailError: GroupsUiError? = null,
+    val isDetailAccessRestricted: Boolean = false
 ) {
     val isLoading: Boolean
         get() = loadState == GroupsLoadState.LOADING

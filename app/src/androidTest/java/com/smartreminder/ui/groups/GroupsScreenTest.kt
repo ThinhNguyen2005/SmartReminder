@@ -321,6 +321,51 @@ class GroupsScreenTest {
     }
 
     @Test
+    fun restrictedDetailRetryKeepsMutationActionsHiddenUntilAuthorizedSuccess() {
+        val group = group("group-1", "Household")
+        val actor = member(group.id.value, "owner-1", GroupRole.OWNER)
+        val restrictedState = detailState(
+            group = group,
+            members = listOf(actor),
+            detailLoadState = GroupsDetailLoadState.OFFLINE_REFRESHING,
+            isDetailAccessRestricted = true
+        )
+        val state = mutableStateOf(restrictedState)
+
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupDetailScreen(uiState = state.value, onAction = {})
+            }
+        }
+
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_offline_refreshing)
+        ).assertIsDisplayed()
+        listOf(
+            R.string.groups_edit_group,
+            R.string.groups_invite_member,
+            R.string.groups_leave_group,
+            R.string.groups_delete_group
+        ).forEach { label ->
+            composeRule.onAllNodesWithText(composeRule.activity.getString(label)).assertCountEquals(0)
+        }
+
+        state.value = restrictedState.copy(
+            detailLoadState = GroupsDetailLoadState.CONTENT,
+            isDetailAccessRestricted = false
+        )
+        composeRule.runOnIdle { }
+        listOf(
+            R.string.groups_edit_group,
+            R.string.groups_invite_member,
+            R.string.groups_leave_group,
+            R.string.groups_delete_group
+        ).forEach { label ->
+            composeRule.onNodeWithText(composeRule.activity.getString(label)).assertIsDisplayed()
+        }
+    }
+
+    @Test
     fun roleOptionsExposeMergedRadioButtonAndSelectedSemantics() {
         val group = group("group-1", "Household")
         val target = member(group.id.value, "member-1", GroupRole.MEMBER)
@@ -615,7 +660,8 @@ class GroupsScreenTest {
         group: CollaborationGroup,
         members: List<GroupMember>,
         detailLoadState: GroupsDetailLoadState = GroupsDetailLoadState.CONTENT,
-        detailError: GroupsUiError? = null
+        detailError: GroupsUiError? = null,
+        isDetailAccessRestricted: Boolean = false
     ): GroupsUiState {
         val actor = members.firstOrNull { it.userId == UserId("owner-1") }
         val actorPermissions = actor?.let {
@@ -656,7 +702,8 @@ class GroupsScreenTest {
                 },
                 canLeaveGroup = actor != null
             ),
-            detailError = detailError
+            detailError = detailError,
+            isDetailAccessRestricted = isDetailAccessRestricted
         )
     }
 }

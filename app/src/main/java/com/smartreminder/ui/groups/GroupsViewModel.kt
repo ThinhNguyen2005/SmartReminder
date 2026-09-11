@@ -57,6 +57,11 @@ class GroupsViewModel(
         }
     )
     private val detailError = MutableStateFlow<GroupsUiError?>(null)
+    /**
+     * Keeps cached detail read-only while a previously denied/not-found refresh is retried.
+     * This is cleared only by an authorized refresh or by changing/leaving the selection.
+     */
+    private val detailAccessRestricted = MutableStateFlow(false)
     private val currentUserId = repository.currentUserId()
     private val pendingMutation = MutableStateFlow<PendingGroupsMutation?>(null)
     private val dialog = MutableStateFlow<GroupsDialog?>(null)
@@ -276,6 +281,7 @@ class GroupsViewModel(
                     CollaborationMutationResult.Applied,
                     is CollaborationMutationResult.Created,
                     CollaborationMutationResult.Queued -> {
+                        detailAccessRestricted.value = false
                         detailError.value = null
                         detailLoadState.value = GroupsDetailLoadState.CONTENT
                         isOffline.value = false
@@ -390,7 +396,8 @@ class GroupsViewModel(
      * response makes cached actor permissions unsafe to use for mutation affordances.
      */
     private fun cachedPermissionsAreUsable(): Boolean =
-        detailError.value !is GroupsUiError.NotAuthorized &&
+        !detailAccessRestricted.value &&
+            detailError.value !is GroupsUiError.NotAuthorized &&
             detailError.value !is GroupsUiError.NotFound
 
     private fun findMember(memberId: UserId): GroupMember? =
@@ -589,13 +596,18 @@ class GroupsViewModel(
     }
 
     private fun selectGroup(groupId: CollaborationGroupId?) {
+        val previousGroupId = selectedGroupId.value
+        val preserveRestrictedDetail =
+            groupId != null && previousGroupId == groupId && detailAccessRestricted.value
         if (groupId == null) {
             pendingCreatedGroupId = null
             ++detailGeneration
             detailRefreshJob?.cancel()
             detailRefreshJob = null
-        } else if (groupId != pendingCreatedGroupId) {
-            pendingCreatedGroupId = null
+            detailAccessRestricted.value = false
+        } else {
+            if (previousGroupId != groupId) detailAccessRestricted.value = false
+            if (groupId != pendingCreatedGroupId) pendingCreatedGroupId = null
         }
         selectedGroupId.value = groupId
         savedStateHandle[SELECTED_GROUP_ID_KEY] = groupId?.value
@@ -605,7 +617,7 @@ class GroupsViewModel(
             detailError.value = null
         } else {
             members.value = memberCacheByGroupId[groupId].orEmpty()
-            detailError.value = null
+            if (!preserveRestrictedDetail) detailError.value = null
             detailLoadState.value = if (members.value.isEmpty()) {
                 GroupsDetailLoadState.LOADING
             } else {
@@ -646,6 +658,9 @@ class GroupsViewModel(
     }
 
     private fun setDetailError(nextError: GroupsUiError?) {
+        if (nextError is GroupsUiError.NotAuthorized || nextError is GroupsUiError.NotFound) {
+            detailAccessRestricted.value = true
+        }
         detailError.value = nextError
         detailLoadState.value = if (members.value.isNotEmpty()) {
             GroupsDetailLoadState.CACHED_OFFLINE
@@ -755,7 +770,8 @@ class GroupsViewModel(
             detailError = detailError.value,
             isCached = hasCachedData,
             isOffline = isOffline.value,
-            isRefreshing = isRefreshing.value
+            isRefreshing = isRefreshing.value,
+            isDetailAccessRestricted = detailAccessRestricted.value
         )
     }
 
