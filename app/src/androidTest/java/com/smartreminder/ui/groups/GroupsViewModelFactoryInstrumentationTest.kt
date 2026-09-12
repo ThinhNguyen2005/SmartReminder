@@ -22,20 +22,24 @@ import com.smartreminder.domain.model.collaboration.GroupMember
 import com.smartreminder.domain.model.collaboration.GroupTask
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
 import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
-import com.smartreminder.domain.model.collaboration.ids.GroupTaskId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import com.smartreminder.domain.repository.AcceptInviteCommand
+import com.smartreminder.domain.repository.CancelGroupTaskCommand
 import com.smartreminder.domain.repository.ChangeMemberRoleCommand
 import com.smartreminder.domain.repository.CollaborationMutationResult
 import com.smartreminder.domain.repository.CollaborationRepository
+import com.smartreminder.domain.repository.CompleteGroupTaskCommand
 import com.smartreminder.domain.repository.CreateGroupCommand
 import com.smartreminder.domain.repository.CreateGroupTaskCommand
 import com.smartreminder.domain.repository.DeclineInviteCommand
 import com.smartreminder.domain.repository.DeleteGroupCommand
-import com.smartreminder.domain.repository.EditOwnGroupTaskContentCommand
+import com.smartreminder.domain.repository.EditGroupTaskCommand
 import com.smartreminder.domain.repository.InviteMemberCommand
 import com.smartreminder.domain.repository.LeaveGroupCommand
+import com.smartreminder.domain.repository.ReassignGroupTaskCommand
 import com.smartreminder.domain.repository.RemoveMemberCommand
+import com.smartreminder.domain.repository.ReopenGroupTaskCommand
+import com.smartreminder.domain.repository.StartGroupTaskCommand
 import com.smartreminder.domain.repository.TransferOwnershipCommand
 import com.smartreminder.domain.repository.UpdateGroupCommand
 import java.time.Instant
@@ -162,10 +166,17 @@ private class InstrumentedGroupsRepository : CollaborationRepository {
 
     override suspend fun createTask(command: CreateGroupTaskCommand) = CollaborationMutationResult.Applied
 
-    override suspend fun startTask(taskId: GroupTaskId) = CollaborationMutationResult.Applied
+    override suspend fun editTask(command: EditGroupTaskCommand) = CollaborationMutationResult.Applied
 
-    override suspend fun completeTask(taskId: GroupTaskId) = CollaborationMutationResult.Applied
+    override suspend fun reassignTask(command: ReassignGroupTaskCommand) = CollaborationMutationResult.Applied
 
-    override suspend fun editOwnTaskContent(command: EditOwnGroupTaskContentCommand) =
+    override suspend fun startTask(command: StartGroupTaskCommand) = CollaborationMutationResult.Applied
+
+    override suspend fun completeTask(command: CompleteGroupTaskCommand) =
+        CollaborationMutationResult.Applied
+
+    override suspend fun cancelTask(command: CancelGroupTaskCommand) = CollaborationMutationResult.Applied
+
+    override suspend fun reopenTask(command: ReopenGroupTaskCommand) =
         CollaborationMutationResult.Applied
 }

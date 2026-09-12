@@ -12,20 +12,25 @@ import com.smartreminder.domain.model.collaboration.GroupRole
 import com.smartreminder.domain.model.collaboration.GroupTask
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
 import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
-import com.smartreminder.domain.model.collaboration.ids.GroupTaskId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import com.smartreminder.domain.repository.AcceptInviteCommand
 import com.smartreminder.domain.repository.ChangeMemberRoleCommand
 import com.smartreminder.domain.repository.CollaborationError
 import com.smartreminder.domain.repository.CollaborationMutationResult
 import com.smartreminder.domain.repository.CollaborationRepository
+import com.smartreminder.domain.repository.CancelGroupTaskCommand
+import com.smartreminder.domain.repository.CompleteGroupTaskCommand
 import com.smartreminder.domain.repository.CreateGroupCommand
+import com.smartreminder.domain.repository.CreateGroupTaskCommand
 import com.smartreminder.domain.repository.DeclineInviteCommand
 import com.smartreminder.domain.repository.DeleteGroupCommand
-import com.smartreminder.domain.repository.EditOwnGroupTaskContentCommand
+import com.smartreminder.domain.repository.EditGroupTaskCommand
 import com.smartreminder.domain.repository.InviteMemberCommand
 import com.smartreminder.domain.repository.LeaveGroupCommand
+import com.smartreminder.domain.repository.ReassignGroupTaskCommand
 import com.smartreminder.domain.repository.RemoveMemberCommand
+import com.smartreminder.domain.repository.ReopenGroupTaskCommand
+import com.smartreminder.domain.repository.StartGroupTaskCommand
 import com.smartreminder.domain.repository.TransferOwnershipCommand
 import com.smartreminder.domain.repository.UpdateGroupCommand
 import kotlinx.coroutines.CancellationException
@@ -245,16 +250,25 @@ class DefaultCollaborationRepository(
             affectedGroupId = groupId
         )
 
-    override suspend fun createTask(command: com.smartreminder.domain.repository.CreateGroupTaskCommand): CollaborationMutationResult =
+    override suspend fun createTask(command: CreateGroupTaskCommand): CollaborationMutationResult =
         unsupportedTaskMutation()
 
-    override suspend fun startTask(taskId: GroupTaskId): CollaborationMutationResult =
+    override suspend fun editTask(command: EditGroupTaskCommand): CollaborationMutationResult =
         unsupportedTaskMutation()
 
-    override suspend fun completeTask(taskId: GroupTaskId): CollaborationMutationResult =
+    override suspend fun reassignTask(command: ReassignGroupTaskCommand): CollaborationMutationResult =
         unsupportedTaskMutation()
 
-    override suspend fun editOwnTaskContent(command: EditOwnGroupTaskContentCommand): CollaborationMutationResult =
+    override suspend fun startTask(command: StartGroupTaskCommand): CollaborationMutationResult =
+        unsupportedTaskMutation()
+
+    override suspend fun completeTask(command: CompleteGroupTaskCommand): CollaborationMutationResult =
+        unsupportedTaskMutation()
+
+    override suspend fun cancelTask(command: CancelGroupTaskCommand): CollaborationMutationResult =
+        unsupportedTaskMutation()
+
+    override suspend fun reopenTask(command: ReopenGroupTaskCommand): CollaborationMutationResult =
         unsupportedTaskMutation()
 
     private suspend fun executeMutation(

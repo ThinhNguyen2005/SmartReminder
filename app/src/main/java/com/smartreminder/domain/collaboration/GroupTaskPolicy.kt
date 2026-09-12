@@ -8,6 +8,10 @@ import java.time.Instant
 
 object GroupTaskPolicy {
 
+    fun canEdit(actorId: UserId, actorRole: GroupRole, task: GroupTask): Boolean {
+        return canReassign(actorId, actorRole, task)
+    }
+
     fun canReassign(actorId: UserId, actorRole: GroupRole, task: GroupTask): Boolean {
         return actorId == task.createdBy || actorRole == GroupRole.OWNER || actorRole == GroupRole.ADMIN
     }

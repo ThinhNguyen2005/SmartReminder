@@ -5,6 +5,8 @@ import com.smartreminder.domain.model.collaboration.ids.GroupTaskId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.time.Instant
 
@@ -124,6 +126,28 @@ class CollaborationRepositoryContractTest {
         assertNotNull(command)
     }
 
+    @Test
+    fun `create command accepts past and future absolute deadlines for a typed assignee`() {
+        val deadlines = listOf(
+            Instant.parse("2026-09-01T12:00:00Z"),
+            Instant.parse("2026-10-01T12:00:00Z")
+        )
+
+        deadlines.forEach { deadline ->
+            val command = CreateGroupTaskCommand(
+                taskId = taskId,
+                groupId = groupId,
+                title = "Task with absolute deadline",
+                assigneeId = assigneeId,
+                dueAt = deadline,
+                reminderOffsetsSeconds = listOf(300L)
+            )
+
+            assertEquals(assigneeId, command.assigneeId)
+            assertEquals(deadline, command.dueAt)
+        }
+    }
+
     // --- EditOwnGroupTaskContentCommand Invariants ---
 
     @Test(expected = IllegalArgumentException::class)
@@ -167,5 +191,183 @@ class CollaborationRepositoryContractTest {
         assertEquals("Final title", command.title)
         assertEquals("Added details", command.description)
         assertEquals(5L, command.expectedVersion)
+    }
+
+    // --- G3 full task command invariants ---
+
+    @Test
+    fun `full edit accepts both past and future absolute deadlines`() {
+        val deadlines = listOf(
+            Instant.parse("2026-09-01T12:00:00Z"),
+            Instant.parse("2026-10-01T12:00:00Z")
+        )
+
+        deadlines.forEach { deadline ->
+            val command = EditGroupTaskCommand(
+                taskId = taskId,
+                title = "Updated task",
+                description = "Updated details",
+                assigneeId = assigneeId,
+                dueAt = deadline,
+                reminderOffsetsSeconds = listOf(60L, 300L),
+                expectedVersion = 4L
+            )
+
+            assertEquals(taskId, command.taskId)
+            assertEquals(assigneeId, command.assigneeId)
+            assertEquals(deadline, command.dueAt)
+        }
+    }
+
+    @Test
+    fun `full edit rejects every invalid title, reminder list, or version case`() {
+        val invalidCommands = listOf<() -> Unit>(
+            {
+                EditGroupTaskCommand(
+                    taskId,
+                    "   ",
+                    assigneeId = assigneeId,
+                    dueAt = dueAt,
+                    reminderOffsetsSeconds = listOf(60L),
+                    expectedVersion = 0L
+                )
+            },
+            {
+                EditGroupTaskCommand(
+                    taskId,
+                    "Valid title",
+                    assigneeId = assigneeId,
+                    dueAt = dueAt,
+                    reminderOffsetsSeconds = emptyList(),
+                    expectedVersion = 0L
+                )
+            },
+            {
+                EditGroupTaskCommand(
+                    taskId,
+                    "Valid title",
+                    assigneeId = assigneeId,
+                    dueAt = dueAt,
+                    reminderOffsetsSeconds = listOf(60L, 120L, 180L, 240L, 300L, 360L),
+                    expectedVersion = 0L
+                )
+            },
+            {
+                EditGroupTaskCommand(
+                    taskId,
+                    "Valid title",
+                    assigneeId = assigneeId,
+                    dueAt = dueAt,
+                    reminderOffsetsSeconds = listOf(60L, 0L),
+                    expectedVersion = 0L
+                )
+            },
+            {
+                EditGroupTaskCommand(
+                    taskId,
+                    "Valid title",
+                    assigneeId = assigneeId,
+                    dueAt = dueAt,
+                    reminderOffsetsSeconds = listOf(60L, -1L),
+                    expectedVersion = 0L
+                )
+            },
+            {
+                EditGroupTaskCommand(
+                    taskId,
+                    "Valid title",
+                    assigneeId = assigneeId,
+                    dueAt = dueAt,
+                    reminderOffsetsSeconds = listOf(60L, 60L),
+                    expectedVersion = 0L
+                )
+            },
+            {
+                EditGroupTaskCommand(
+                    taskId,
+                    "Valid title",
+                    assigneeId = assigneeId,
+                    dueAt = dueAt,
+                    reminderOffsetsSeconds = listOf(60L),
+                    expectedVersion = -1L
+                )
+            }
+        )
+
+        invalidCommands.forEachIndexed { index, command ->
+            assertIllegalArgument("full edit invalid case #$index", command)
+        }
+    }
+
+    @Test
+    fun `reassign and status commands preserve typed id and expected version`() {
+        val commandFields = listOf<() -> Pair<GroupTaskId, Long>>(
+            {
+                ReassignGroupTaskCommand(taskId, assigneeId, expectedVersion = 2L).let {
+                    it.taskId to it.expectedVersion
+                }
+            },
+            {
+                StartGroupTaskCommand(taskId, expectedVersion = 3L).let {
+                    it.taskId to it.expectedVersion
+                }
+            },
+            {
+                CompleteGroupTaskCommand(taskId, expectedVersion = 4L).let {
+                    it.taskId to it.expectedVersion
+                }
+            },
+            {
+                CancelGroupTaskCommand(taskId, expectedVersion = 5L).let {
+                    it.taskId to it.expectedVersion
+                }
+            },
+            {
+                ReopenGroupTaskCommand(taskId, expectedVersion = 6L).let {
+                    it.taskId to it.expectedVersion
+                }
+            }
+        )
+
+        commandFields.forEach { command ->
+            val (actualTaskId, actualVersion) = command()
+            assertEquals(taskId, actualTaskId)
+            assertTrue(actualVersion >= 0L)
+        }
+        assertEquals(assigneeId, ReassignGroupTaskCommand(taskId, assigneeId, 2L).assigneeId)
+    }
+
+    @Test
+    fun `all existing-task commands reject negative expected versions`() {
+        val invalidCommands = listOf<() -> Unit>(
+            {
+                EditGroupTaskCommand(
+                    taskId,
+                    "Valid title",
+                    assigneeId = assigneeId,
+                    dueAt = dueAt,
+                    reminderOffsetsSeconds = listOf(60L),
+                    expectedVersion = -1L
+                )
+            },
+            { ReassignGroupTaskCommand(taskId, assigneeId, expectedVersion = -1L) },
+            { StartGroupTaskCommand(taskId, expectedVersion = -1L) },
+            { CompleteGroupTaskCommand(taskId, expectedVersion = -1L) },
+            { CancelGroupTaskCommand(taskId, expectedVersion = -1L) },
+            { ReopenGroupTaskCommand(taskId, expectedVersion = -1L) }
+        )
+
+        invalidCommands.forEachIndexed { index, command ->
+            assertIllegalArgument("negative expectedVersion case #$index", command)
+        }
+    }
+
+    private fun assertIllegalArgument(label: String, action: () -> Unit) {
+        try {
+            action()
+            fail("Expected IllegalArgumentException for $label")
+        } catch (_: IllegalArgumentException) {
+            // Expected for the invalid command table row.
+        }
     }
 }

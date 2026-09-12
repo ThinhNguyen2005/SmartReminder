@@ -23,13 +23,9 @@ data class CreateGroupTaskCommand(
     val reminderOffsetsSeconds: List<Long>
 ) {
     init {
-        require(title.isNotBlank()) { "title must not be blank" }
-        require(reminderOffsetsSeconds.isNotEmpty()) { "at least 1 reminder offset required" }
-        require(reminderOffsetsSeconds.size <= 5) { "at most 5 reminder offsets allowed" }
-        require(reminderOffsetsSeconds.all { it > 0 }) { "all reminder offsets must be positive" }
-        require(reminderOffsetsSeconds.distinct().size == reminderOffsetsSeconds.size) {
-            "reminder offsets must be unique"
-        }
+        requireTaskTitle(title)
+        requireTaskAssignee(assigneeId)
+        requireTaskReminderOffsets(reminderOffsetsSeconds)
     }
 }
 
@@ -120,7 +116,10 @@ interface CollaborationRepository {
         deleteGroup(command.groupId)
 
     suspend fun createTask(command: CreateGroupTaskCommand): CollaborationMutationResult
-    suspend fun startTask(taskId: GroupTaskId): CollaborationMutationResult
-    suspend fun completeTask(taskId: GroupTaskId): CollaborationMutationResult
-    suspend fun editOwnTaskContent(command: EditOwnGroupTaskContentCommand): CollaborationMutationResult
+    suspend fun editTask(command: EditGroupTaskCommand): CollaborationMutationResult
+    suspend fun reassignTask(command: ReassignGroupTaskCommand): CollaborationMutationResult
+    suspend fun startTask(command: StartGroupTaskCommand): CollaborationMutationResult
+    suspend fun completeTask(command: CompleteGroupTaskCommand): CollaborationMutationResult
+    suspend fun cancelTask(command: CancelGroupTaskCommand): CollaborationMutationResult
+    suspend fun reopenTask(command: ReopenGroupTaskCommand): CollaborationMutationResult
 }

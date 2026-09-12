@@ -6,6 +6,7 @@ import com.smartreminder.domain.model.collaboration.GroupTaskStatus
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
 import com.smartreminder.domain.model.collaboration.ids.GroupTaskId
 import com.smartreminder.domain.model.collaboration.ids.UserId
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -51,6 +52,24 @@ class GroupTaskPolicyTest {
 
         // Non-creator Member cannot reassign
         assertFalse(GroupTaskPolicy.canReassign(actorId = otherUserId, actorRole = GroupRole.MEMBER, task = task))
+    }
+
+    @Test
+    fun `full edit permission follows task creator and manager matrix`() {
+        val task = createTask(GroupTaskStatus.TODO)
+        val cases = listOf(
+            Triple(creatorId, GroupRole.MEMBER, true),
+            Triple(otherUserId, GroupRole.OWNER, true),
+            Triple(otherUserId, GroupRole.ADMIN, true),
+            Triple(otherUserId, GroupRole.MEMBER, false)
+        )
+
+        cases.forEach { (actorId, actorRole, expected) ->
+            assertEquals(
+                expected,
+                GroupTaskPolicy.canEdit(actorId = actorId, actorRole = actorRole, task = task)
+            )
+        }
     }
 
     // --- canStart ---
@@ -169,5 +188,46 @@ class GroupTaskPolicyTest {
         // Completed and Cancelled tasks are never overdue even after dueAt
         assertFalse(GroupTaskPolicy.isOverdue(completedTask, afterDue))
         assertFalse(GroupTaskPolicy.isOverdue(cancelledTask, afterDue))
+    }
+
+    @Test
+    fun `workflow policy table enforces actor and state boundaries`() {
+        data class WorkflowCase(
+            val operation: String,
+            val status: GroupTaskStatus,
+            val actorId: UserId,
+            val actorRole: GroupRole,
+            val allowed: Boolean
+        )
+
+        val cases = listOf(
+            WorkflowCase("start", GroupTaskStatus.TODO, assigneeId, GroupRole.MEMBER, true),
+            WorkflowCase("start", GroupTaskStatus.IN_PROGRESS, assigneeId, GroupRole.MEMBER, false),
+            WorkflowCase("start", GroupTaskStatus.TODO, creatorId, GroupRole.MEMBER, false),
+            WorkflowCase("complete", GroupTaskStatus.TODO, assigneeId, GroupRole.MEMBER, true),
+            WorkflowCase("complete", GroupTaskStatus.IN_PROGRESS, assigneeId, GroupRole.MEMBER, true),
+            WorkflowCase("complete", GroupTaskStatus.COMPLETED, assigneeId, GroupRole.MEMBER, false),
+            WorkflowCase("complete", GroupTaskStatus.TODO, creatorId, GroupRole.OWNER, false),
+            WorkflowCase("cancel", GroupTaskStatus.TODO, creatorId, GroupRole.MEMBER, true),
+            WorkflowCase("cancel", GroupTaskStatus.IN_PROGRESS, otherUserId, GroupRole.ADMIN, true),
+            WorkflowCase("cancel", GroupTaskStatus.COMPLETED, creatorId, GroupRole.MEMBER, false),
+            WorkflowCase("cancel", GroupTaskStatus.TODO, otherUserId, GroupRole.MEMBER, false),
+            WorkflowCase("reopen", GroupTaskStatus.COMPLETED, creatorId, GroupRole.MEMBER, true),
+            WorkflowCase("reopen", GroupTaskStatus.CANCELLED, otherUserId, GroupRole.OWNER, true),
+            WorkflowCase("reopen", GroupTaskStatus.TODO, creatorId, GroupRole.MEMBER, false),
+            WorkflowCase("reopen", GroupTaskStatus.COMPLETED, otherUserId, GroupRole.MEMBER, false)
+        )
+
+        cases.forEach { case ->
+            val task = createTask(case.status)
+            val actual = when (case.operation) {
+                "start" -> GroupTaskPolicy.canStart(case.actorId, task)
+                "complete" -> GroupTaskPolicy.canComplete(case.actorId, task)
+                "cancel" -> GroupTaskPolicy.canCancel(case.actorId, case.actorRole, task)
+                "reopen" -> GroupTaskPolicy.canReopen(case.actorId, case.actorRole, task)
+                else -> error("Unknown operation: ${case.operation}")
+            }
+            assertEquals("${case.operation}/${case.status}/${case.actorRole}", case.allowed, actual)
+        }
     }
 }
