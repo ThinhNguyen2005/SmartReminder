@@ -5,7 +5,6 @@ import com.smartreminder.domain.model.collaboration.ids.GroupTaskId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.time.Instant
@@ -216,6 +215,32 @@ class CollaborationRepositoryContractTest {
             assertEquals(taskId, command.taskId)
             assertEquals(assigneeId, command.assigneeId)
             assertEquals(deadline, command.dueAt)
+            assertEquals(4L, command.expectedVersion)
+        }
+    }
+
+    @Test
+    fun `all existing-task commands accept expected version zero`() {
+        val versions = listOf<() -> Long>(
+            {
+                EditGroupTaskCommand(
+                    taskId,
+                    "Valid title",
+                    assigneeId = assigneeId,
+                    dueAt = dueAt,
+                    reminderOffsetsSeconds = listOf(60L),
+                    expectedVersion = 0L
+                ).expectedVersion
+            },
+            { ReassignGroupTaskCommand(taskId, assigneeId, expectedVersion = 0L).expectedVersion },
+            { StartGroupTaskCommand(taskId, expectedVersion = 0L).expectedVersion },
+            { CompleteGroupTaskCommand(taskId, expectedVersion = 0L).expectedVersion },
+            { CancelGroupTaskCommand(taskId, expectedVersion = 0L).expectedVersion },
+            { ReopenGroupTaskCommand(taskId, expectedVersion = 0L).expectedVersion }
+        )
+
+        versions.forEach { command ->
+            assertEquals(0L, command())
         }
     }
 
@@ -301,28 +326,33 @@ class CollaborationRepositoryContractTest {
 
     @Test
     fun `reassign and status commands preserve typed id and expected version`() {
-        val commandFields = listOf<() -> Pair<GroupTaskId, Long>>(
-            {
+        data class VersionCase(
+            val expectedVersion: Long,
+            val command: () -> Pair<GroupTaskId, Long>
+        )
+
+        val commandFields = listOf(
+            VersionCase(2L) {
                 ReassignGroupTaskCommand(taskId, assigneeId, expectedVersion = 2L).let {
                     it.taskId to it.expectedVersion
                 }
             },
-            {
+            VersionCase(3L) {
                 StartGroupTaskCommand(taskId, expectedVersion = 3L).let {
                     it.taskId to it.expectedVersion
                 }
             },
-            {
+            VersionCase(4L) {
                 CompleteGroupTaskCommand(taskId, expectedVersion = 4L).let {
                     it.taskId to it.expectedVersion
                 }
             },
-            {
+            VersionCase(5L) {
                 CancelGroupTaskCommand(taskId, expectedVersion = 5L).let {
                     it.taskId to it.expectedVersion
                 }
             },
-            {
+            VersionCase(6L) {
                 ReopenGroupTaskCommand(taskId, expectedVersion = 6L).let {
                     it.taskId to it.expectedVersion
                 }
@@ -330,9 +360,9 @@ class CollaborationRepositoryContractTest {
         )
 
         commandFields.forEach { command ->
-            val (actualTaskId, actualVersion) = command()
+            val (actualTaskId, actualVersion) = command.command()
             assertEquals(taskId, actualTaskId)
-            assertTrue(actualVersion >= 0L)
+            assertEquals(command.expectedVersion, actualVersion)
         }
         assertEquals(assigneeId, ReassignGroupTaskCommand(taskId, assigneeId, 2L).assigneeId)
     }
