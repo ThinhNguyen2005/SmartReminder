@@ -1,20 +1,30 @@
 package com.smartreminder.data.remote.collaboration
 
 import com.smartreminder.data.remote.SupabaseManager
+import com.smartreminder.data.remote.MissingSupabaseConfigurationException
 import com.smartreminder.domain.repository.AcceptInviteCommand
+import com.smartreminder.domain.repository.CancelGroupTaskCommand
 import com.smartreminder.domain.repository.ChangeMemberRoleCommand
+import com.smartreminder.domain.repository.CompleteGroupTaskCommand
 import com.smartreminder.domain.repository.CreateGroupCommand
+import com.smartreminder.domain.repository.CreateGroupTaskCommand
 import com.smartreminder.domain.repository.DeclineInviteCommand
 import com.smartreminder.domain.repository.DeleteGroupCommand
+import com.smartreminder.domain.repository.EditGroupTaskCommand
 import com.smartreminder.domain.repository.InviteMemberCommand
 import com.smartreminder.domain.repository.LeaveGroupCommand
+import com.smartreminder.domain.repository.ReassignGroupTaskCommand
 import com.smartreminder.domain.repository.RemoveMemberCommand
+import com.smartreminder.domain.repository.ReopenGroupTaskCommand
+import com.smartreminder.domain.repository.StartGroupTaskCommand
 import com.smartreminder.domain.repository.TransferOwnershipCommand
 import com.smartreminder.domain.repository.UpdateGroupCommand
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -54,7 +64,9 @@ class SupabaseCollaborationRemoteDataSource private constructor(
 
     private val supabase: SupabaseClient
         get() = supabaseProvider?.invoke()
-            ?: error("A Supabase client is required for PostgREST reads")
+            ?: throw MissingSupabaseConfigurationException(
+                "A Supabase client is required for collaboration PostgREST reads"
+            )
 
     override suspend fun fetchGroups(): List<CollaborationGroupRemoteDto> =
         supabase.from(GROUPS_TABLE).select().decodeList()
@@ -78,6 +90,56 @@ class SupabaseCollaborationRemoteDataSource private constructor(
 
     override suspend fun fetchInvites(): List<CollaborationInviteRemoteDto> =
         supabase.from(INVITES_TABLE).select().decodeList()
+
+    override suspend fun fetchTasks(groupId: String): List<CollaborationTaskRemoteDto> =
+        supabase.from(TASKS_TABLE).select {
+            filter { eq("group_id", groupId) }
+        }.decodeList<CollaborationTaskRemoteDto>()
+            .also { tasks -> tasks.forEach { requireTaskGroup(it, groupId) } }
+
+    override suspend fun fetchTask(
+        groupId: String,
+        taskId: String
+    ): CollaborationTaskRemoteDto? =
+        supabase.from(TASKS_TABLE).select {
+            filter {
+                eq("group_id", groupId)
+                eq("id", taskId)
+            }
+        }.decodeSingleOrNull<CollaborationTaskRemoteDto>()
+            ?.also { requireTaskGroup(it, groupId) }
+
+    /**
+     * The reminder table has no group column. Verify the parent through the
+     * same group-scoped task query before reading child rows, so a caller can
+     * never use this boundary to fetch another group's offsets.
+     */
+    override suspend fun fetchTaskReminders(
+        groupId: String,
+        taskId: String
+    ): List<CollaborationTaskReminderRemoteDto> {
+        if (fetchTask(groupId, taskId) == null) return emptyList()
+        return fetchTaskRemindersForKnownTask(taskId)
+    }
+
+    override suspend fun fetchTaskDetails(
+        groupId: String,
+        taskId: String
+    ): CollaborationTaskDetailsRemoteDto? {
+        val task = fetchTask(groupId, taskId) ?: return null
+        return CollaborationTaskDetailsRemoteDto(
+            task = task,
+            reminders = fetchTaskRemindersForKnownTask(task.id)
+        )
+    }
+
+    override suspend fun fetchTaskDetails(groupId: String): List<CollaborationTaskDetailsRemoteDto> =
+        fetchTasks(groupId).map { task ->
+            CollaborationTaskDetailsRemoteDto(
+                task = task,
+                reminders = fetchTaskRemindersForKnownTask(task.id)
+            )
+        }
 
     override suspend fun createGroup(command: CreateGroupCommand): CollaborationMutationEnvelopeRemoteDto =
         rpc(CREATE_GROUP_RPC, buildJsonObject {
@@ -139,17 +201,94 @@ class SupabaseCollaborationRemoteDataSource private constructor(
             put("p_group_id", command.groupId.value)
         })
 
+    override suspend fun createTask(command: CreateGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
+        rpc(CREATE_TASK_RPC, buildJsonObject {
+            put("p_task_id", command.taskId.value)
+            put("p_group_id", command.groupId.value)
+            put("p_title", command.title)
+            put("p_assignee_id", command.assigneeId.value)
+            put("p_due_at", command.dueAt.toString())
+            put("p_reminder_offsets_seconds", JsonArray(command.reminderOffsetsSeconds.map(::JsonPrimitive)))
+            command.description?.let { put("p_description", it) }
+        })
+
+    override suspend fun editTask(command: EditGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
+        rpc(EDIT_TASK_RPC, buildJsonObject {
+            put("p_task_id", command.taskId.value)
+            put("p_title", command.title)
+            put("p_assignee_id", command.assigneeId.value)
+            put("p_due_at", command.dueAt.toString())
+            put("p_reminder_offsets_seconds", JsonArray(command.reminderOffsetsSeconds.map(::JsonPrimitive)))
+            put("p_expected_version", command.expectedVersion)
+            command.description?.let { put("p_description", it) }
+        })
+
+    override suspend fun reassignTask(command: ReassignGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
+        rpc(REASSIGN_TASK_RPC, buildJsonObject {
+            put("p_task_id", command.taskId.value)
+            put("p_assignee_id", command.assigneeId.value)
+            put("p_expected_version", command.expectedVersion)
+        })
+
+    override suspend fun startTask(command: StartGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
+        rpc(START_TASK_RPC, taskStatusParameters(command.taskId.value, command.expectedVersion))
+
+    override suspend fun completeTask(command: CompleteGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
+        rpc(COMPLETE_TASK_RPC, taskStatusParameters(command.taskId.value, command.expectedVersion))
+
+    override suspend fun cancelTask(command: CancelGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
+        rpc(CANCEL_TASK_RPC, taskStatusParameters(command.taskId.value, command.expectedVersion))
+
+    override suspend fun reopenTask(command: ReopenGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
+        rpc(REOPEN_TASK_RPC, taskStatusParameters(command.taskId.value, command.expectedVersion))
+
     private suspend fun rpc(
         function: String,
         parameters: JsonObject
     ): CollaborationMutationEnvelopeRemoteDto =
         rpcInvoker.invoke(function, parameters)
 
+    private suspend fun fetchTaskRemindersForKnownTask(
+        taskId: String
+    ): List<CollaborationTaskReminderRemoteDto> =
+        supabase.from(TASK_REMINDERS_TABLE).select {
+            filter { eq("task_id", taskId) }
+        }.decodeList<CollaborationTaskReminderRemoteDto>()
+            .also { reminders ->
+                reminders.forEach { reminder ->
+                    if (reminder.taskId != taskId) {
+                        throw CollaborationMappingException(
+                            "Reminder ${reminder.taskId} does not belong to task $taskId"
+                        )
+                    }
+                }
+            }
+            .sortedWith(
+                compareBy<CollaborationTaskReminderRemoteDto> { it.offsetSeconds }
+                    .thenBy { it.taskId }
+            )
+
+    private fun requireTaskGroup(task: CollaborationTaskRemoteDto, groupId: String) {
+        if (task.groupId != groupId) {
+            throw CollaborationMappingException(
+                "Task ${task.id} belongs to group ${task.groupId}, not $groupId"
+            )
+        }
+    }
+
+    private fun taskStatusParameters(taskId: String, expectedVersion: Long): JsonObject =
+        buildJsonObject {
+            put("p_task_id", taskId)
+            put("p_expected_version", expectedVersion)
+        }
+
     companion object {
         const val GROUPS_TABLE = "collaboration_groups"
         const val MEMBERS_TABLE = "group_members"
         const val PROFILES_TABLE = "user_profiles"
         const val INVITES_TABLE = "group_invites"
+        const val TASKS_TABLE = "group_tasks"
+        const val TASK_REMINDERS_TABLE = "group_task_reminders"
 
         const val CREATE_GROUP_RPC = "create_collaboration_group"
         const val UPDATE_GROUP_RPC = "update_collaboration_group"
@@ -160,6 +299,13 @@ class SupabaseCollaborationRemoteDataSource private constructor(
         const val TRANSFER_OWNERSHIP_RPC = "transfer_group_ownership"
         const val LEAVE_GROUP_RPC = "leave_collaboration_group"
         const val DELETE_GROUP_RPC = "delete_collaboration_group"
+        const val CREATE_TASK_RPC = "create_group_task"
+        const val EDIT_TASK_RPC = "edit_group_task"
+        const val REASSIGN_TASK_RPC = "reassign_group_task"
+        const val START_TASK_RPC = "start_group_task"
+        const val COMPLETE_TASK_RPC = "complete_group_task"
+        const val CANCEL_TASK_RPC = "cancel_group_task"
+        const val REOPEN_TASK_RPC = "reopen_group_task"
 
         fun configured(): SupabaseCollaborationRemoteDataSource =
             SupabaseCollaborationRemoteDataSource { SupabaseManager.client }

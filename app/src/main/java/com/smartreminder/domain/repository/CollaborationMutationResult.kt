@@ -14,6 +14,10 @@ sealed interface CollaborationMutationResult {
                     Conflict(error ?: CollaborationError.Conflict())
                 CollaborationMutationStatus.NOT_AUTHORIZED ->
                     NotAuthorized(error ?: CollaborationError.NotAuthorized)
+                CollaborationMutationStatus.NOT_FOUND ->
+                    Failure(error ?: CollaborationError.NotFound)
+                CollaborationMutationStatus.VALIDATION ->
+                    Failure(error ?: CollaborationError.Validation("Validation failed"))
                 CollaborationMutationStatus.MEMBER_NOT_FOUND ->
                     Failure(error ?: CollaborationError.MemberNotFound)
                 CollaborationMutationStatus.ALREADY_MEMBER ->

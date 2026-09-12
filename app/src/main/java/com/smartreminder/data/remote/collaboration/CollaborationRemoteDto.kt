@@ -45,13 +45,46 @@ data class CollaborationInviteRemoteDto(
     @SerialName("responded_at") val respondedAt: String? = null
 )
 
+/** Primitive PostgREST representation of a task row. */
+@Serializable
+data class CollaborationTaskRemoteDto(
+    val id: String,
+    @SerialName("group_id") val groupId: String,
+    val title: String,
+    val description: String? = null,
+    @SerialName("created_by") val createdBy: String,
+    @SerialName("assignee_id") val assigneeId: String,
+    @SerialName("due_at") val dueAt: String,
+    val status: String,
+    val version: Long,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("updated_at") val updatedAt: String
+)
+
+/** Primitive PostgREST representation of a task-owned reminder offset. */
+@Serializable
+data class CollaborationTaskReminderRemoteDto(
+    @SerialName("task_id") val taskId: String,
+    @SerialName("offset_seconds") val offsetSeconds: Long
+)
+
+/** A task row paired with its task-owned reminder offsets. */
+data class CollaborationTaskDetailsRemoteDto(
+    val task: CollaborationTaskRemoteDto,
+    val reminders: List<CollaborationTaskReminderRemoteDto> = emptyList()
+)
+
+/** Backward-compatible names for callers that use the domain model prefix. */
+typealias GroupTaskRemoteDto = CollaborationTaskRemoteDto
+typealias GroupTaskReminderRemoteDto = CollaborationTaskReminderRemoteDto
+
 @Serializable
 data class CollaborationErrorRemoteDto(
     val code: String,
     val detail: String? = null
 )
 
-/** Exact JSON envelope returned by every G2 membership RPC. */
+/** Exact JSON envelope returned by collaboration membership and task RPCs. */
 @Serializable
 data class CollaborationMutationEnvelopeRemoteDto(
     val status: String,

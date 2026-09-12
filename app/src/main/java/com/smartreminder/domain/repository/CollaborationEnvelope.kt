@@ -26,6 +26,8 @@ enum class CollaborationMutationStatus {
     NETWORK_REQUIRED,
     CONFLICT,
     NOT_AUTHORIZED,
+    NOT_FOUND,
+    VALIDATION,
     MEMBER_NOT_FOUND,
     ALREADY_MEMBER,
     INVITE_ALREADY_PENDING,
