@@ -10,6 +10,7 @@ import com.smartreminder.data.local.room.entity.collaboration.CachedGroupMemberE
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskReminderEntity
 import com.smartreminder.data.local.room.entity.collaboration.PendingGroupCommandEntity
+import com.smartreminder.data.local.room.mapper.GroupTaskMapper
 import com.smartreminder.data.local.room.model.collaboration.PendingGroupCommandState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -167,6 +168,31 @@ class CollaborationCacheDaoTest {
     }
 
     @Test
+    fun givenTaskOnlyReplacement_whenRetainedTaskChanges_thenMappedDetailsKeepReminderOffsets() = runTest {
+        val cacheDao = database.collaborationCacheDao()
+        cacheDao.upsertGroup(group())
+        val originalTask = task(id = "task_retained", groupId = "group_1", createdAt = 1L)
+        cacheDao.replaceTaskWithReminders(
+            originalTask,
+            listOf(
+                CachedGroupTaskReminderEntity(taskId = originalTask.id, offsetSeconds = 300L),
+                CachedGroupTaskReminderEntity(taskId = originalTask.id, offsetSeconds = 60L)
+            )
+        )
+
+        cacheDao.replaceTasks(
+            groupId = "group_1",
+            tasks = listOf(originalTask.copy(title = "Updated title", updatedAt = 2L))
+        )
+
+        val details = GroupTaskMapper.toDetailsDomain(
+            cacheDao.getTaskDetails("group_1", originalTask.id)!!
+        )
+        assertEquals("Updated title", details.task.title)
+        assertEquals(listOf(60L, 300L), details.reminders.map { it.offsetSeconds })
+    }
+
+    @Test
     fun givenTaskWithReminders_whenReplaced_thenOffsetsAreSortedAndStaleOffsetsAreRemoved() = runTest {
         val cacheDao = database.collaborationCacheDao()
         cacheDao.upsertGroup(group())
@@ -211,12 +237,22 @@ class CollaborationCacheDaoTest {
                 CachedGroupTaskReminderEntity(taskId = groupOneTask.id, offsetSeconds = 60L)
             )
         )
+
+        cacheDao.replaceTasks(
+            groupId = "group_1",
+            tasks = listOf(groupOneTask.copy(title = "Updated task", updatedAt = 3L)),
+            reminders = listOf(
+                CachedGroupTaskReminderEntity(taskId = groupOneTask.id, offsetSeconds = 300L)
+            )
+        )
         cacheDao.upsertTaskWithReminders(
             groupTwoTask,
             listOf(CachedGroupTaskReminderEntity(taskId = groupTwoTask.id, offsetSeconds = 120L))
         )
 
-        assertEquals(listOf(60L, 600L), cacheDao.getTaskDetails("group_1", "task_1")!!.reminders.map { it.offsetSeconds })
+        val updatedGroupOneTask = cacheDao.getTaskDetails("group_1", "task_1")!!
+        assertEquals("Updated task", updatedGroupOneTask.task.title)
+        assertEquals(listOf(300L), updatedGroupOneTask.reminders.map { it.offsetSeconds })
         assertEquals(listOf(120L), cacheDao.getTaskDetails("group_2", "task_2")!!.reminders.map { it.offsetSeconds })
     }
 
@@ -255,14 +291,17 @@ class CollaborationCacheDaoTest {
     fun givenCrossGroupTaskSnapshot_whenReplacing_thenExistingTargetRowsRemain() = runTest {
         val cacheDao = database.collaborationCacheDao()
         cacheDao.upsertGroup(group())
+        cacheDao.upsertGroup(group(id = "group_2"))
         val existing = task(id = "task_existing", groupId = "group_1", createdAt = 1L)
+        val collision = task(id = "task_collision", groupId = "group_2", createdAt = 2L)
         cacheDao.upsertTask(existing)
+        cacheDao.upsertTask(collision)
 
         var rejected = false
         try {
             cacheDao.replaceTasks(
                 groupId = "group_1",
-                tasks = listOf(task(id = "task_wrong", groupId = "group_2", createdAt = 2L))
+                tasks = listOf(task(id = collision.id, groupId = "group_1", createdAt = 3L))
             )
         } catch (_: IllegalArgumentException) {
             rejected = true
@@ -270,6 +309,7 @@ class CollaborationCacheDaoTest {
 
         assertTrue(rejected)
         assertEquals(listOf(existing.id), cacheDao.observeTasks("group_1").first().map { it.id })
+        assertEquals(listOf(collision.id), cacheDao.observeTasks("group_2").first().map { it.id })
     }
 
     @Test

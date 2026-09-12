@@ -109,14 +109,24 @@ interface CollaborationCacheDao {
     @Query("DELETE FROM cached_group_tasks WHERE group_id = :groupId")
     suspend fun deleteTasksForGroup(groupId: String)
 
+    @Query("DELETE FROM cached_group_tasks WHERE group_id = :groupId AND id NOT IN (:taskIds)")
+    suspend fun deleteTasksForGroupNotIn(groupId: String, taskIds: List<String>)
+
     @Transaction
     suspend fun replaceTasks(groupId: String, tasks: List<CachedGroupTaskEntity>) {
         // Validate before deleting so a malformed remote snapshot cannot
         // erase the previous authoritative cache for this group.
         requireTaskGroup(groupId, tasks)
         requireTaskIdsAvailable(tasks)
-        deleteTasksForGroup(groupId)
-        if (tasks.isNotEmpty()) upsertTaskEntities(tasks)
+        if (tasks.isEmpty()) {
+            deleteTasksForGroup(groupId)
+        } else {
+            // This overload has no reminder payload. Upsert retained parents
+            // in place so Room does not cascade-delete their existing offsets,
+            // then remove only parents absent from the task-only snapshot.
+            upsertTaskEntities(tasks)
+            deleteTasksForGroupNotIn(groupId, tasks.map(CachedGroupTaskEntity::id))
+        }
     }
 
     /** Replaces a group's tasks and all task-owned offsets as one cache snapshot. */
