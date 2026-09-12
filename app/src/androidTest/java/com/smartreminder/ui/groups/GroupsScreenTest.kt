@@ -18,6 +18,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.unit.Density
 import com.smartreminder.R
@@ -93,6 +94,28 @@ class GroupsScreenTest {
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_offline_cached)).assertIsDisplayed()
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_retry)).performClick()
         assertTrue(actions.contains(GroupsAction.Refresh))
+    }
+
+    @Test
+    fun offlineStatusIsAnnouncedAsPoliteLiveRegion() {
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupsListScreen(
+                    uiState = GroupsUiState(
+                        loadState = GroupsLoadState.CACHED_OFFLINE,
+                        groups = listOf(group("group-1", "Cached")),
+                        isCached = true,
+                        isOffline = true
+                    ),
+                    onAction = {}
+                )
+            }
+        }
+
+        val messageNode = composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_offline_cached)
+        ).fetchSemanticsNode()
+        assertEquals(LiveRegionMode.Polite, messageNode.config[SemanticsProperties.LiveRegion])
     }
 
     @Test

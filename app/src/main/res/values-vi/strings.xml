@@ -224,6 +224,17 @@
     <string name="groups_confirm">Xác nhận</string>
     <string name="groups_cancel">Hủy</string>
     <string name="groups_saving">Đang lưu…</string>
+    <string name="groups_snackbar_failure">Thao tác thất bại. %1$s</string>
+    <string name="groups_success_create">Đã tạo nhóm.</string>
+    <string name="groups_success_update">Đã cập nhật nhóm.</string>
+    <string name="groups_success_invite">Đã gửi lời mời.</string>
+    <string name="groups_success_accept_invite">Đã chấp nhận lời mời.</string>
+    <string name="groups_success_decline_invite">Đã từ chối lời mời.</string>
+    <string name="groups_success_change_role">Đã cập nhật vai trò thành viên.</string>
+    <string name="groups_success_remove_member">Đã xóa thành viên.</string>
+    <string name="groups_success_transfer_ownership">Đã chuyển quyền sở hữu.</string>
+    <string name="groups_success_leave">Bạn đã rời nhóm.</string>
+    <string name="groups_success_delete">Đã xóa nhóm.</string>
     <string name="groups_confirm_remove_message">Thành viên này sẽ mất quyền truy cập nhóm.</string>
     <string name="groups_confirm_transfer_message">Quyền sở hữu sẽ chuyển cho thành viên này.</string>
     <string name="groups_confirm_leave_message">Bạn sẽ mất quyền truy cập nhóm.</string>

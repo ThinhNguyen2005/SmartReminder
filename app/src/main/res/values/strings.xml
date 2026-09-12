@@ -225,6 +225,17 @@
     <string name="groups_confirm">Confirm</string>
     <string name="groups_cancel">Cancel</string>
     <string name="groups_saving">Saving…</string>
+    <string name="groups_snackbar_failure">Action failed. %1$s</string>
+    <string name="groups_success_create">Group created successfully.</string>
+    <string name="groups_success_update">Group updated successfully.</string>
+    <string name="groups_success_invite">Invitation sent successfully.</string>
+    <string name="groups_success_accept_invite">Invitation accepted.</string>
+    <string name="groups_success_decline_invite">Invitation declined.</string>
+    <string name="groups_success_change_role">Member role updated.</string>
+    <string name="groups_success_remove_member">Member removed.</string>
+    <string name="groups_success_transfer_ownership">Ownership transferred.</string>
+    <string name="groups_success_leave">You left the group.</string>
+    <string name="groups_success_delete">Group deleted.</string>
     <string name="groups_confirm_remove_message">This member will lose access to the group.</string>
     <string name="groups_confirm_transfer_message">Ownership will move to this member.</string>
     <string name="groups_confirm_leave_message">You will lose access to this group.</string>

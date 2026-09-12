@@ -27,8 +27,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import com.smartreminder.R
@@ -179,6 +181,14 @@ private fun GroupEditorDialog(
 ) {
     var name by remember(dialogKey) { mutableStateOf(initialName) }
     var description by remember(dialogKey) { mutableStateOf(initialDescription) }
+    val nameError = if (
+        error is GroupsUiError.Validation &&
+        error.kind == GroupsValidationKind.GROUP_NAME_REQUIRED
+    ) {
+        groupsErrorMessage(error)
+    } else {
+        null
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = stringResource(titleRes)) },
@@ -194,7 +204,18 @@ private fun GroupEditorDialog(
                     label = { Text(text = stringResource(R.string.groups_group_name)) },
                     singleLine = false,
                     enabled = !pending,
-                    isError = error != null
+                    isError = nameError != null,
+                    supportingText = {
+                        nameError?.let { message ->
+                            Text(
+                                text = message,
+                                modifier = Modifier.semantics {
+                                    error(message)
+                                    liveRegion = LiveRegionMode.Polite
+                                }
+                            )
+                        }
+                    }
                 )
                 OutlinedTextField(
                     value = description,
@@ -207,7 +228,12 @@ private fun GroupEditorDialog(
                     minLines = 2,
                     enabled = !pending
                 )
-                DialogError(error)
+                DialogError(
+                    error.takeUnless {
+                        it is GroupsUiError.Validation &&
+                            it.kind == GroupsValidationKind.GROUP_NAME_REQUIRED
+                    }
+                )
             }
         },
         confirmButton = {
@@ -252,6 +278,14 @@ private fun InviteMemberDialog(
     onConfirm: (String) -> Unit
 ) {
     var email by remember(dialogKey) { mutableStateOf("") }
+    val emailError = if (
+        error is GroupsUiError.Validation &&
+        error.kind == GroupsValidationKind.EMAIL_INVALID
+    ) {
+        groupsErrorMessage(error)
+    } else {
+        null
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = stringResource(R.string.groups_invite_member_dialog_title)) },
@@ -267,9 +301,25 @@ private fun InviteMemberDialog(
                     label = { Text(text = stringResource(R.string.groups_invite_email)) },
                     singleLine = false,
                     enabled = !pending,
-                    isError = error != null
+                    isError = emailError != null,
+                    supportingText = {
+                        emailError?.let { message ->
+                            Text(
+                                text = message,
+                                modifier = Modifier.semantics {
+                                    error(message)
+                                    liveRegion = LiveRegionMode.Polite
+                                }
+                            )
+                        }
+                    }
                 )
-                DialogError(error)
+                DialogError(
+                    error.takeUnless {
+                        it is GroupsUiError.Validation &&
+                            it.kind == GroupsValidationKind.EMAIL_INVALID
+                    }
+                )
             }
         },
         confirmButton = {
@@ -345,7 +395,15 @@ private fun ChangeMemberRoleDialog(
                 modifier = Modifier.heightIn(min = CueSpacing.Xxxl),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(CueSpacing.Lg)
             ) {
-                Text(text = stringResource(R.string.groups_confirm))
+                if (pending) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(CueSpacing.Lg),
+                        strokeWidth = CueSpacing.Xs / 2f,
+                        color = CueTheme.colors.onCta
+                    )
+                } else {
+                    Text(text = stringResource(R.string.groups_confirm))
+                }
             }
         },
         dismissButton = {
@@ -525,15 +583,23 @@ private fun InviteResponseDialog(
                         },
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(CueSpacing.Lg)
                     ) {
-                        Text(
-                            text = stringResource(
-                                if (choice == InviteResponseChoice.ACCEPT) {
-                                    R.string.groups_accept_invite
-                                } else {
-                                    R.string.groups_decline_invite
-                                }
+                        if (pending) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(CueSpacing.Lg),
+                                strokeWidth = CueSpacing.Xs / 2f,
+                                color = CueTheme.colors.onCta
                             )
-                        )
+                        } else {
+                            Text(
+                                text = stringResource(
+                                    if (choice == InviteResponseChoice.ACCEPT) {
+                                        R.string.groups_accept_invite
+                                    } else {
+                                        R.string.groups_decline_invite
+                                    }
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -569,6 +635,7 @@ private fun DialogError(uiError: GroupsUiError?) {
             .fillMaxWidth()
             .semantics {
                 error(message)
+                liveRegion = LiveRegionMode.Polite
             }
     )
 }

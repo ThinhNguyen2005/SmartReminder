@@ -57,9 +57,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -544,7 +546,11 @@ private fun GroupsStatusBanner(
                     text = message,
                     style = MaterialTheme.typography.bodyMedium,
                     color = CueTheme.colors.textSecondary,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics {
+                            liveRegion = LiveRegionMode.Polite
+                        }
                 )
             }
             action?.let { content ->
@@ -1012,30 +1018,30 @@ fun GroupTaskLockedSection(modifier: Modifier = Modifier) {
     }
 }
 
-@Composable
-internal fun groupsErrorMessage(error: GroupsUiError?): String = when (error) {
-    GroupsUiError.MissingConfiguration -> stringResource(R.string.groups_error_missing_config)
-    GroupsUiError.Offline -> stringResource(R.string.groups_error_offline)
-    GroupsUiError.NotAuthorized -> stringResource(R.string.groups_error_not_authorized)
-    GroupsUiError.NotFound -> stringResource(R.string.groups_error_not_found)
-    GroupsUiError.MemberNotFound -> stringResource(R.string.groups_error_member_not_found)
-    GroupsUiError.AlreadyMember -> stringResource(R.string.groups_error_already_member)
-    GroupsUiError.InviteAlreadyPending -> stringResource(R.string.groups_error_invite_pending)
+@androidx.annotation.StringRes
+internal fun groupsErrorStringRes(error: GroupsUiError?): Int = when (error) {
+    GroupsUiError.MissingConfiguration -> R.string.groups_error_missing_config
+    GroupsUiError.Offline -> R.string.groups_error_offline
+    GroupsUiError.NotAuthorized -> R.string.groups_error_not_authorized
+    GroupsUiError.NotFound -> R.string.groups_error_not_found
+    GroupsUiError.MemberNotFound -> R.string.groups_error_member_not_found
+    GroupsUiError.AlreadyMember -> R.string.groups_error_already_member
+    GroupsUiError.InviteAlreadyPending -> R.string.groups_error_invite_pending
     is GroupsUiError.Validation -> when (error.kind) {
-        GroupsValidationKind.GROUP_NAME_REQUIRED ->
-            stringResource(R.string.groups_error_group_name_required)
-        GroupsValidationKind.EMAIL_INVALID ->
-            stringResource(R.string.groups_error_email_invalid)
-        GroupsValidationKind.ROLE_INVALID ->
-            stringResource(R.string.groups_error_role_invalid)
-        GroupsValidationKind.GENERAL ->
-            stringResource(R.string.groups_error_validation_general)
+        GroupsValidationKind.GROUP_NAME_REQUIRED -> R.string.groups_error_group_name_required
+        GroupsValidationKind.EMAIL_INVALID -> R.string.groups_error_email_invalid
+        GroupsValidationKind.ROLE_INVALID -> R.string.groups_error_role_invalid
+        GroupsValidationKind.GENERAL -> R.string.groups_error_validation_general
     }
-    is GroupsUiError.Conflict -> stringResource(R.string.groups_error_conflict)
-    is GroupsUiError.InvalidState -> stringResource(R.string.groups_error_invalid_state)
-    is GroupsUiError.MappingFailure -> stringResource(R.string.groups_error_mapping)
-    is GroupsUiError.Unknown, null -> stringResource(R.string.groups_error_unknown)
+    is GroupsUiError.Conflict -> R.string.groups_error_conflict
+    is GroupsUiError.InvalidState -> R.string.groups_error_invalid_state
+    is GroupsUiError.MappingFailure -> R.string.groups_error_mapping
+    is GroupsUiError.Unknown, null -> R.string.groups_error_unknown
 }
+
+@Composable
+internal fun groupsErrorMessage(error: GroupsUiError?): String =
+    stringResource(groupsErrorStringRes(error))
 
 @Preview(showBackground = true)
 @Composable

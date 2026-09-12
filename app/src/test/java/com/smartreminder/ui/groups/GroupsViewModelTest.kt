@@ -607,6 +607,120 @@ class GroupsViewModelTest {
     }
 
     @Test
+    fun `when group-bound mutation fails, then failure does not expose a drifting retry action`() = runTest {
+        repository.mutationResult = CollaborationMutationResult.NetworkRequired
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+
+        val actions = listOf(
+            GroupsAction.UpdateGroup("Renamed"),
+            GroupsAction.InviteMember("new@example.com"),
+            GroupsAction.ChangeMemberRole(UserId("member-1"), GroupRole.ADMIN),
+            GroupsAction.RemoveMember(UserId("member-1")),
+            GroupsAction.TransferOwnership(UserId("member-1"))
+        )
+        actions.forEach { action ->
+            val failureDeferred = async {
+                viewModel.effects
+                    .filter { it is GroupsEffect.MutationFailed }
+                    .first() as GroupsEffect.MutationFailed
+            }
+
+            viewModel.onAction(action)
+            advanceUntilIdle()
+
+            assertNull(
+                "${action::class.simpleName} must not retry against the current selected group",
+                failureDeferred.await().retryAction
+            )
+        }
+    }
+
+    @Test
+    fun `when leave or delete fails, then failure has no retry action that could bypass confirmation`() = runTest {
+        repository.mutationResult = CollaborationMutationResult.NetworkRequired
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+        viewModel.onAction(GroupsAction.OpenDeleteGroupDialog)
+        assertEquals(GroupsDialog.DeleteGroup, viewModel.uiState.value.dialog)
+
+        val failureDeferred = async {
+            viewModel.effects
+                .filter { it is GroupsEffect.MutationFailed }
+                .first() as GroupsEffect.MutationFailed
+        }
+        viewModel.onAction(GroupsAction.DeleteGroup)
+        advanceUntilIdle()
+        val deleteFailure = failureDeferred.await()
+        assertNull(deleteFailure.retryAction)
+        assertFalse(deleteFailure.showSnackbar)
+        assertEquals(GroupsDialog.DeleteGroup, viewModel.uiState.value.dialog)
+
+        val leaveRepository = FakeCollaborationRepository(
+            groups = listOf(group("group-1", "Household")),
+            members = listOf(
+                member("group-1", "owner-1", GroupRole.OWNER),
+                member("group-1", "member-1", GroupRole.MEMBER)
+            ),
+            currentUserId = UserId("member-1")
+        ).apply {
+            mutationResult = CollaborationMutationResult.NetworkRequired
+        }
+        val leaveViewModel = GroupsViewModel(leaveRepository)
+        advanceUntilIdle()
+        leaveViewModel.onAction(GroupsAction.OpenGroup(CollaborationGroupId("group-1")))
+        advanceUntilIdle()
+        leaveViewModel.onAction(GroupsAction.OpenLeaveGroupDialog)
+        assertEquals(GroupsDialog.LeaveGroup, leaveViewModel.uiState.value.dialog)
+        val leaveFailureDeferred = async {
+            leaveViewModel.effects
+                .filter { it is GroupsEffect.MutationFailed }
+                .first() as GroupsEffect.MutationFailed
+        }
+        leaveViewModel.onAction(GroupsAction.LeaveGroup)
+        advanceUntilIdle()
+        val leaveFailure = leaveFailureDeferred.await()
+        assertNull(leaveFailure.retryAction)
+        assertFalse(leaveFailure.showSnackbar)
+        assertEquals(GroupsDialog.LeaveGroup, leaveViewModel.uiState.value.dialog)
+    }
+
+    @Test
+    fun `when invite response fails, then retry action remains bound to invite id`() = runTest {
+        repository.mutationResult = CollaborationMutationResult.NetworkRequired
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+
+        val acceptFailureDeferred = async {
+            viewModel.effects
+                .filter { it is GroupsEffect.MutationFailed }
+                .first() as GroupsEffect.MutationFailed
+        }
+        viewModel.onAction(GroupsAction.AcceptInvite(GroupInviteId("invite-1")))
+        advanceUntilIdle()
+        assertEquals(
+            GroupsAction.AcceptInvite(GroupInviteId("invite-1")),
+            acceptFailureDeferred.await().retryAction
+        )
+
+        val declineFailureDeferred = async {
+            viewModel.effects
+                .filter { it is GroupsEffect.MutationFailed }
+                .first() as GroupsEffect.MutationFailed
+        }
+        viewModel.onAction(GroupsAction.DeclineInvite(GroupInviteId("invite-1")))
+        advanceUntilIdle()
+        assertEquals(
+            GroupsAction.DeclineInvite(GroupInviteId("invite-1")),
+            declineFailureDeferred.await().retryAction
+        )
+    }
+
+    @Test
     fun `when a non-owner leaves selected group, then leave mutation delegates`() = runTest {
         repository.currentUserId = UserId("member-1")
         val viewModel = GroupsViewModel(repository)
@@ -678,6 +792,9 @@ class GroupsViewModelTest {
         assertNull(viewModel.uiState.value.pendingMutation)
         effectsJob.cancel()
         assertNoMutationOutcomeEffects(effects)
+        val failure = effects.single() as GroupsEffect.MutationFailed
+        assertEquals(GroupsMutation.CREATE_GROUP, failure.mutation)
+        assertNull(failure.retryAction)
     }
 
     @Test
@@ -700,6 +817,29 @@ class GroupsViewModelTest {
         assertNull(viewModel.uiState.value.pendingMutation)
         effectsJob.cancel()
         assertNoMutationOutcomeEffects(effects)
+        val failure = effects.single() as GroupsEffect.MutationFailed
+        assertEquals(GroupsUiError.Unknown(cause), failure.error)
+        assertEquals(GroupsAction.CreateGroup("Failed"), failure.retryAction)
+    }
+
+    @Test
+    fun `when mutation fails offline, then retryable mutation feedback effect is emitted`() = runTest {
+        repository.createGroupResult = CollaborationMutationResult.NetworkRequired
+        val viewModel = GroupsViewModel(repository)
+        advanceUntilIdle()
+        val effects = mutableListOf<GroupsEffect>()
+        val effectsJob = launch {
+            viewModel.effects.collect { effects += it }
+        }
+
+        viewModel.onAction(GroupsAction.CreateGroup("Offline"))
+        advanceUntilIdle()
+
+        val failure = effects.single() as GroupsEffect.MutationFailed
+        assertEquals(GroupsMutation.CREATE_GROUP, failure.mutation)
+        assertEquals(GroupsUiError.Offline, failure.error)
+        assertEquals(GroupsAction.CreateGroup("Offline"), failure.retryAction)
+        effectsJob.cancel()
     }
 
     @Test
@@ -1193,6 +1333,7 @@ private class FakeCollaborationRepository(
     private val refreshGroupCallCounts = mutableMapOf<CollaborationGroupId, Int>()
     var createGroupCompletion: CompletableDeferred<CollaborationMutationResult>? = null
     var createGroupResult: CollaborationMutationResult = CollaborationMutationResult.Applied
+    var mutationResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var cancelCreateGroup: Boolean = false
     var createGroupCancelled: Boolean = false
     val refreshGroupCompletions = mutableMapOf<CollaborationGroupId, CompletableDeferred<CollaborationMutationResult>>()
@@ -1265,47 +1406,47 @@ private class FakeCollaborationRepository(
 
     override suspend fun updateGroup(command: UpdateGroupCommand): CollaborationMutationResult {
         mutationCalls += "update:${command.name}"
-        return CollaborationMutationResult.Applied
+        return mutationResult
     }
 
     override suspend fun inviteMember(command: InviteMemberCommand): CollaborationMutationResult {
         mutationCalls += "invite:${command.email}"
-        return CollaborationMutationResult.Applied
+        return mutationResult
     }
 
     override suspend fun acceptInvite(inviteId: GroupInviteId): CollaborationMutationResult {
         mutationCalls += "accept:${inviteId.value}"
-        return CollaborationMutationResult.Applied
+        return mutationResult
     }
 
     override suspend fun declineInvite(inviteId: GroupInviteId): CollaborationMutationResult {
         mutationCalls += "decline:${inviteId.value}"
-        return CollaborationMutationResult.Applied
+        return mutationResult
     }
 
     override suspend fun changeMemberRole(command: ChangeMemberRoleCommand): CollaborationMutationResult {
         mutationCalls += "role:${command.memberId.value}:${command.newRole.name}"
-        return CollaborationMutationResult.Applied
+        return mutationResult
     }
 
     override suspend fun removeMember(command: RemoveMemberCommand): CollaborationMutationResult {
         mutationCalls += "remove:${command.memberId.value}"
-        return CollaborationMutationResult.Applied
+        return mutationResult
     }
 
     override suspend fun transferOwnership(command: TransferOwnershipCommand): CollaborationMutationResult {
         mutationCalls += "transfer:${command.newOwnerId.value}"
-        return CollaborationMutationResult.Applied
+        return mutationResult
     }
 
     override suspend fun leaveGroup(groupId: CollaborationGroupId): CollaborationMutationResult {
         mutationCalls += "leave:${groupId.value}"
-        return CollaborationMutationResult.Applied
+        return mutationResult
     }
 
     override suspend fun deleteGroup(groupId: CollaborationGroupId): CollaborationMutationResult {
         mutationCalls += "delete:${groupId.value}"
-        return CollaborationMutationResult.Applied
+        return mutationResult
     }
 
     override suspend fun createTask(command: CreateGroupTaskCommand) =

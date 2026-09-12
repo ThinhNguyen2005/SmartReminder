@@ -471,7 +471,10 @@ class GroupsViewModel(
             setError(GroupsUiError.Validation(GroupsValidationKind.GROUP_NAME_REQUIRED))
             return
         }
-        mutate(PendingGroupsMutation(GroupsMutation.CREATE_GROUP)) {
+        mutate(
+            mutation = PendingGroupsMutation(GroupsMutation.CREATE_GROUP),
+            retryAction = action
+        ) {
             repository.createGroup(command)
         }
     }
@@ -505,13 +508,21 @@ class GroupsViewModel(
     }
 
     private fun acceptInvite(inviteId: GroupInviteId) {
-        mutate(PendingGroupsMutation(GroupsMutation.ACCEPT_INVITE, inviteId = inviteId)) {
+        val retryAction = GroupsAction.AcceptInvite(inviteId)
+        mutate(
+            mutation = PendingGroupsMutation(GroupsMutation.ACCEPT_INVITE, inviteId = inviteId),
+            retryAction = retryAction
+        ) {
             repository.acceptInvite(AcceptInviteCommand(inviteId))
         }
     }
 
     private fun declineInvite(inviteId: GroupInviteId) {
-        mutate(PendingGroupsMutation(GroupsMutation.DECLINE_INVITE, inviteId = inviteId)) {
+        val retryAction = GroupsAction.DeclineInvite(inviteId)
+        mutate(
+            mutation = PendingGroupsMutation(GroupsMutation.DECLINE_INVITE, inviteId = inviteId),
+            retryAction = retryAction
+        ) {
             repository.declineInvite(DeclineInviteCommand(inviteId))
         }
     }
@@ -579,6 +590,7 @@ class GroupsViewModel(
 
     private fun mutate(
         mutation: PendingGroupsMutation,
+        retryAction: GroupsAction? = null,
         action: suspend () -> CollaborationMutationResult
     ) {
         if (pendingMutation.value != null || mutationJob?.isActive == true) return
@@ -634,19 +646,41 @@ class GroupsViewModel(
                             effectsChannel.trySend(GroupsEffect.NavigateToList)
                         }
                     }
-                    CollaborationMutationResult.Queued ->
-                        applyMutationError(
-                            CollaborationError.InvalidState("Queued membership response is unsupported"),
-                            mutation
-                        )
+                    CollaborationMutationResult.Queued -> applyMutationFailure(
+                        domainError = CollaborationError.InvalidState(
+                            "Queued membership response is unsupported"
+                        ),
+                        mutation = mutation,
+                        retryAction = retryAction
+                    )
                     CollaborationMutationResult.NetworkRequired -> {
-                        applyError(CollaborationError.NetworkUnavailable())
+                        applyMutationFailure(
+                            domainError = CollaborationError.NetworkUnavailable(),
+                            mutation = mutation,
+                            retryAction = retryAction
+                        )
                         isOffline.value = true
                     }
-                    is CollaborationMutationResult.Failure -> applyMutationError(result.error, mutation)
-                    is CollaborationMutationResult.Conflict -> applyMutationError(result.error, mutation)
-                    is CollaborationMutationResult.NotAuthorized -> applyMutationError(result.error, mutation)
-                    is CollaborationMutationResult.InvalidState -> applyMutationError(result.error, mutation)
+                    is CollaborationMutationResult.Failure -> applyMutationFailure(
+                        domainError = result.error,
+                        mutation = mutation,
+                        retryAction = retryAction
+                    )
+                    is CollaborationMutationResult.Conflict -> applyMutationFailure(
+                        domainError = result.error,
+                        mutation = mutation,
+                        retryAction = retryAction
+                    )
+                    is CollaborationMutationResult.NotAuthorized -> applyMutationFailure(
+                        domainError = result.error,
+                        mutation = mutation,
+                        retryAction = retryAction
+                    )
+                    is CollaborationMutationResult.InvalidState -> applyMutationFailure(
+                        domainError = result.error,
+                        mutation = mutation,
+                        retryAction = retryAction
+                    )
                 }
             } catch (cancelled: CancellationException) {
                 if (requestGeneration == mutationGeneration && pendingMutation.value == mutation) {
@@ -661,6 +695,32 @@ class GroupsViewModel(
                 }
             }
         }
+    }
+
+    private fun applyMutationFailure(
+        domainError: CollaborationError,
+        mutation: PendingGroupsMutation,
+        retryAction: GroupsAction?
+    ) {
+        applyMutationError(domainError, mutation)
+        val uiError = mapError(domainError)
+        effectsChannel.trySend(
+            GroupsEffect.MutationFailed(
+                mutation = mutation.mutation,
+                error = uiError,
+                retryAction = retryAction?.takeIf {
+                    uiError.isRetryable() && it.isSafeMutationRetry()
+                },
+                showSnackbar = dialog.value == null
+            )
+        )
+    }
+
+    private fun GroupsAction.isSafeMutationRetry(): Boolean = when (this) {
+        is GroupsAction.CreateGroup,
+        is GroupsAction.AcceptInvite,
+        is GroupsAction.DeclineInvite -> true
+        else -> false
     }
 
     private fun selectGroup(groupId: CollaborationGroupId?) {
@@ -924,6 +984,14 @@ class GroupsViewModel(
         is CollaborationError.MappingFailure -> GroupsUiError.MappingFailure(domainError.message)
         is CollaborationError.SyncRejected -> GroupsUiError.InvalidState(domainError.message)
         is CollaborationError.Unknown -> GroupsUiError.Unknown(domainError.cause)
+    }
+
+    private fun GroupsUiError.isRetryable(): Boolean = when (this) {
+        GroupsUiError.Offline,
+        is GroupsUiError.Conflict,
+        is GroupsUiError.MappingFailure,
+        is GroupsUiError.Unknown -> true
+        else -> false
     }
 
     companion object {
