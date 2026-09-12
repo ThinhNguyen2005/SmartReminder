@@ -7,6 +7,10 @@
 -- second idempotency table.  All task writes below run in the caller's
 -- transaction and are exposed only through SECURITY DEFINER RPCs.
 --
+-- Lock order is part of the command contract: every command acquires the
+-- collaboration group row first, then the task row, then member rows.  The
+-- create retry path follows the same order before it re-reads the task.
+--
 -- This migration deliberately does not create an outbox, replay queue,
 -- delivery scheduler, standalone GroupReminder, or FCM integration.
 -- ============================================================================
@@ -197,6 +201,14 @@ begin
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
     end if;
 
+    -- Retry paths lock the group before attempting to lock the existing task.
+    -- A new task has no row to lock yet; the insert below remains idempotent.
+    select *
+    into v_existing
+    from public.group_tasks
+    where id = p_task_id
+    for update;
+
     -- Lock actor and assignee in a stable order before checking either role.
     perform 1
     from public.group_members as gm
@@ -328,6 +340,13 @@ begin
             'idempotent', false
         )
     );
+exception
+    when deadlock_detected then
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            'The task command could not acquire locks; retry'
+        );
 end;
 $function$;
 
@@ -353,6 +372,7 @@ declare
     v_actor uuid := (select auth.uid());
     v_task public.group_tasks%rowtype;
     v_group public.collaboration_groups%rowtype;
+    v_task_group_id uuid;
     v_actor_role text;
     v_assignee_role text;
     v_validation text;
@@ -387,11 +407,10 @@ begin
         );
     end if;
 
-    select *
-    into v_task
-    from public.group_tasks
-    where id = p_task_id
-    for update;
+    select gt.group_id
+    into v_task_group_id
+    from public.group_tasks as gt
+    where gt.id = p_task_id;
 
     if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
@@ -400,10 +419,21 @@ begin
     select *
     into v_group
     from public.collaboration_groups
-    where id = v_task.group_id
+    where id = v_task_group_id
     for update;
 
     if not found or v_group.deleted_at is not null then
+        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+    end if;
+
+    select *
+    into v_task
+    from public.group_tasks
+    where id = p_task_id
+      and group_id = v_task_group_id
+    for update;
+
+    if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
     end if;
 
@@ -489,6 +519,13 @@ begin
         null,
         jsonb_build_object('task_id', p_task_id, 'version', v_new_version)
     );
+exception
+    when deadlock_detected then
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            'The task command could not acquire locks; retry'
+        );
 end;
 $function$;
 
@@ -512,6 +549,7 @@ declare
     v_actor uuid := (select auth.uid());
     v_task public.group_tasks%rowtype;
     v_group public.collaboration_groups%rowtype;
+    v_task_group_id uuid;
     v_actor_role text;
     v_assignee_role text;
     v_new_version bigint;
@@ -531,11 +569,10 @@ begin
         );
     end if;
 
-    select *
-    into v_task
-    from public.group_tasks
-    where id = p_task_id
-    for update;
+    select gt.group_id
+    into v_task_group_id
+    from public.group_tasks as gt
+    where gt.id = p_task_id;
 
     if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
@@ -544,10 +581,21 @@ begin
     select *
     into v_group
     from public.collaboration_groups
-    where id = v_task.group_id
+    where id = v_task_group_id
     for update;
 
     if not found or v_group.deleted_at is not null then
+        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+    end if;
+
+    select *
+    into v_task
+    from public.group_tasks
+    where id = p_task_id
+      and group_id = v_task_group_id
+    for update;
+
+    if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
     end if;
 
@@ -639,6 +687,13 @@ begin
             'version', v_new_version
         )
     );
+exception
+    when deadlock_detected then
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            'The task command could not acquire locks; retry'
+        );
 end;
 $function$;
 
@@ -659,6 +714,7 @@ declare
     v_actor uuid := (select auth.uid());
     v_task public.group_tasks%rowtype;
     v_group public.collaboration_groups%rowtype;
+    v_task_group_id uuid;
     v_actor_role text;
     v_new_version bigint;
 begin
@@ -676,11 +732,10 @@ begin
         );
     end if;
 
-    select *
-    into v_task
-    from public.group_tasks
-    where id = p_task_id
-    for update;
+    select gt.group_id
+    into v_task_group_id
+    from public.group_tasks as gt
+    where gt.id = p_task_id;
 
     if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
@@ -689,10 +744,21 @@ begin
     select *
     into v_group
     from public.collaboration_groups
-    where id = v_task.group_id
+    where id = v_task_group_id
     for update;
 
     if not found or v_group.deleted_at is not null then
+        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+    end if;
+
+    select *
+    into v_task
+    from public.group_tasks
+    where id = p_task_id
+      and group_id = v_task_group_id
+    for update;
+
+    if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
     end if;
 
@@ -746,6 +812,13 @@ begin
         null,
         jsonb_build_object('task_id', p_task_id, 'status', 'IN_PROGRESS', 'version', v_new_version)
     );
+exception
+    when deadlock_detected then
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            'The task command could not acquire locks; retry'
+        );
 end;
 $function$;
 
@@ -766,6 +839,7 @@ declare
     v_actor uuid := (select auth.uid());
     v_task public.group_tasks%rowtype;
     v_group public.collaboration_groups%rowtype;
+    v_task_group_id uuid;
     v_actor_role text;
     v_new_version bigint;
 begin
@@ -783,11 +857,10 @@ begin
         );
     end if;
 
-    select *
-    into v_task
-    from public.group_tasks
-    where id = p_task_id
-    for update;
+    select gt.group_id
+    into v_task_group_id
+    from public.group_tasks as gt
+    where gt.id = p_task_id;
 
     if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
@@ -796,10 +869,21 @@ begin
     select *
     into v_group
     from public.collaboration_groups
-    where id = v_task.group_id
+    where id = v_task_group_id
     for update;
 
     if not found or v_group.deleted_at is not null then
+        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+    end if;
+
+    select *
+    into v_task
+    from public.group_tasks
+    where id = p_task_id
+      and group_id = v_task_group_id
+    for update;
+
+    if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
     end if;
 
@@ -853,6 +937,13 @@ begin
         null,
         jsonb_build_object('task_id', p_task_id, 'status', 'COMPLETED', 'version', v_new_version)
     );
+exception
+    when deadlock_detected then
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            'The task command could not acquire locks; retry'
+        );
 end;
 $function$;
 
@@ -873,6 +964,7 @@ declare
     v_actor uuid := (select auth.uid());
     v_task public.group_tasks%rowtype;
     v_group public.collaboration_groups%rowtype;
+    v_task_group_id uuid;
     v_actor_role text;
     v_new_version bigint;
 begin
@@ -890,11 +982,10 @@ begin
         );
     end if;
 
-    select *
-    into v_task
-    from public.group_tasks
-    where id = p_task_id
-    for update;
+    select gt.group_id
+    into v_task_group_id
+    from public.group_tasks as gt
+    where gt.id = p_task_id;
 
     if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
@@ -903,10 +994,21 @@ begin
     select *
     into v_group
     from public.collaboration_groups
-    where id = v_task.group_id
+    where id = v_task_group_id
     for update;
 
     if not found or v_group.deleted_at is not null then
+        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+    end if;
+
+    select *
+    into v_task
+    from public.group_tasks
+    where id = p_task_id
+      and group_id = v_task_group_id
+    for update;
+
+    if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
     end if;
 
@@ -965,6 +1067,13 @@ begin
         null,
         jsonb_build_object('task_id', p_task_id, 'status', 'CANCELLED', 'version', v_new_version)
     );
+exception
+    when deadlock_detected then
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            'The task command could not acquire locks; retry'
+        );
 end;
 $function$;
 
@@ -985,6 +1094,7 @@ declare
     v_actor uuid := (select auth.uid());
     v_task public.group_tasks%rowtype;
     v_group public.collaboration_groups%rowtype;
+    v_task_group_id uuid;
     v_actor_role text;
     v_new_version bigint;
 begin
@@ -1002,11 +1112,10 @@ begin
         );
     end if;
 
-    select *
-    into v_task
-    from public.group_tasks
-    where id = p_task_id
-    for update;
+    select gt.group_id
+    into v_task_group_id
+    from public.group_tasks as gt
+    where gt.id = p_task_id;
 
     if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
@@ -1015,10 +1124,21 @@ begin
     select *
     into v_group
     from public.collaboration_groups
-    where id = v_task.group_id
+    where id = v_task_group_id
     for update;
 
     if not found or v_group.deleted_at is not null then
+        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+    end if;
+
+    select *
+    into v_task
+    from public.group_tasks
+    where id = p_task_id
+      and group_id = v_task_group_id
+    for update;
+
+    if not found then
         return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
     end if;
 
@@ -1077,6 +1197,13 @@ begin
         null,
         jsonb_build_object('task_id', p_task_id, 'status', 'TODO', 'version', v_new_version)
     );
+exception
+    when deadlock_detected then
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            'The task command could not acquire locks; retry'
+        );
 end;
 $function$;
 
