@@ -347,48 +347,64 @@ class DefaultCollaborationRepository(
         }
         if (!networkAvailable) return CollaborationMutationResult.NetworkRequired
 
-        beginMutationBoundary()
+        val mutationGeneration = beginMutationBoundary()
 
         return try {
             val envelope = action()
             val result = resultMapper(envelope)
-            val taskGroupId = affectedTaskGroupId
-                ?: affectedTaskId?.let { resolveTaskGroupId(it, envelope) }
-            if (result === CollaborationMutationResult.Applied ||
-                result is CollaborationMutationResult.Created
-            ) {
-                try {
-                    afterApplied(envelope)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    // The RPC already applied. Keep the truthful result and retain cache rows.
+            val completionGeneration = finishMutationBoundary(mutationGeneration)
+            if (completionGeneration != null) {
+                val taskGroupId = if (result.isAccessLoss()) {
+                    resolveTaskGroupIdOrNull(affectedTaskId, envelope, affectedTaskGroupId)
+                } else {
+                    null
                 }
-            } else if (result.isConflict()) {
-                try {
-                    afterConflict(envelope)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    // A conflict is authoritative even when its follow-up refresh is unavailable.
-                    // The prior cache remains available for an explicit retry.
+                if (result === CollaborationMutationResult.Applied ||
+                    result is CollaborationMutationResult.Created
+                ) {
+                    try {
+                        afterApplied(envelope)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // The RPC already applied. Keep the truthful result and retain cache rows.
+                    }
+                } else if (result.isConflict()) {
+                    try {
+                        afterConflict(envelope)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // A conflict is authoritative even when its follow-up refresh is unavailable.
+                        // The prior cache remains available for an explicit retry.
+                    }
+                } else if (result.isAccessLoss()) {
+                    redactMutationCacheIfCurrent(
+                        generation = completionGeneration,
+                        groupId = affectedGroupId,
+                        inviteId = affectedInviteId,
+                        taskGroupId = taskGroupId
+                    )
                 }
-            } else if (result.isAccessLoss()) {
-                if (affectedGroupId != null) evictGroup(affectedGroupId)
-                if (affectedInviteId != null) evictInvite(affectedInviteId)
-                if (taskGroupId != null) evictTasks(taskGroupId)
             }
             result
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             val result = networkFailure(failure)
-            if (result.isAccessLoss()) {
-                if (affectedGroupId != null) evictGroup(affectedGroupId)
-                if (affectedInviteId != null) evictInvite(affectedInviteId)
-                val taskGroupId = affectedTaskGroupId
-                    ?: affectedTaskId?.let { resolveTaskGroupId(it, null) }
-                if (taskGroupId != null) evictTasks(taskGroupId)
+            val completionGeneration = finishMutationBoundary(mutationGeneration)
+            if (completionGeneration != null && result.isAccessLoss()) {
+                val taskGroupId = resolveTaskGroupIdOrNull(
+                    taskId = affectedTaskId,
+                    envelope = null,
+                    knownGroupId = affectedTaskGroupId
+                )
+                redactMutationCacheIfCurrent(
+                    generation = completionGeneration,
+                    groupId = affectedGroupId,
+                    inviteId = affectedInviteId,
+                    taskGroupId = taskGroupId
+                )
             }
             result
         }
@@ -402,11 +418,11 @@ class DefaultCollaborationRepository(
         action = action,
         resultMapper = CollaborationRemoteMapper::toTaskMutationResult,
         afterApplied = { envelope ->
-            resolveTaskGroupId(affectedTaskId, envelope, affectedTaskGroupId)
+            resolveTaskGroupIdOrNull(affectedTaskId, envelope, affectedTaskGroupId)
                 ?.let { refreshTasks(it) }
         },
         afterConflict = { envelope ->
-            resolveTaskGroupId(affectedTaskId, envelope, affectedTaskGroupId)
+            resolveTaskGroupIdOrNull(affectedTaskId, envelope, affectedTaskGroupId)
                 ?.let { refreshTasks(it) }
         },
         affectedTaskGroupId = affectedTaskGroupId,
@@ -459,6 +475,24 @@ class DefaultCollaborationRepository(
             ?.takeIf(String::isNotBlank)
             ?.let(::CollaborationGroupId)
 
+    private suspend fun resolveTaskGroupIdOrNull(
+        taskId: GroupTaskId?,
+        envelope: CollaborationMutationEnvelopeRemoteDto?,
+        knownGroupId: CollaborationGroupId? = null
+    ): CollaborationGroupId? {
+        return try {
+            if (taskId == null) {
+                knownGroupId ?: envelope?.groupIdOrNull()
+            } else {
+                resolveTaskGroupId(taskId, envelope, knownGroupId)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private suspend fun refreshInvitesAndAffectedGroup(
         envelope: CollaborationMutationEnvelopeRemoteDto
     ) {
@@ -493,9 +527,25 @@ class DefaultCollaborationRepository(
 
     private suspend fun currentCacheGeneration(): Long = cacheWriteMutex.withLock { cacheGeneration }
 
-    private suspend fun beginMutationBoundary() {
-        cacheWriteMutex.withLock { cacheGeneration += 1 }
+    private suspend fun beginMutationBoundary(): Long = cacheWriteMutex.withLock {
+        cacheGeneration += 1
+        cacheGeneration
     }
+
+    /**
+     * Closes the RPC window before any follow-up refresh starts. A session switch
+     * or newer mutation wins the generation and suppresses this mutation's cache
+     * side effects, while a refresh started during the RPC becomes stale.
+     */
+    private suspend fun finishMutationBoundary(startGeneration: Long): Long? =
+        cacheWriteMutex.withLock {
+            if (cacheGeneration != startGeneration) {
+                null
+            } else {
+                cacheGeneration += 1
+                cacheGeneration
+            }
+        }
 
     private suspend fun writeCacheIfCurrent(generation: Long, write: suspend () -> Unit) {
         cacheWriteMutex.withLock {
@@ -539,10 +589,21 @@ class DefaultCollaborationRepository(
         }
     }
 
-    private suspend fun evictTasks(groupId: CollaborationGroupId) {
+    private suspend fun redactMutationCacheIfCurrent(
+        generation: Long,
+        groupId: CollaborationGroupId?,
+        inviteId: GroupInviteId?,
+        taskGroupId: CollaborationGroupId?
+    ) {
         cacheWriteMutex.withLock {
+            if (cacheGeneration != generation) return@withLock
             cacheGeneration += 1
-            cache.removeTasksForGroup(groupId.value)
+            groupId?.let {
+                cache.removeGroup(it.value)
+                cache.removeInvitesForGroup(it.value)
+            }
+            inviteId?.let { cache.removeInvite(it.value) }
+            taskGroupId?.let { cache.removeTasksForGroup(it.value) }
         }
     }
 

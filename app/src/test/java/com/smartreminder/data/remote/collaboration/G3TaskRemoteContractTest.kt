@@ -135,6 +135,7 @@ class G3TaskRemoteContractTest {
             status = "APPLIED",
             data = buildJsonObject {
                 put("task_id", "task-1")
+                put("group_id", "group-1")
                 put("status", "COMPLETED")
                 put("version", 8L)
             }
@@ -143,6 +144,7 @@ class G3TaskRemoteContractTest {
         val response = CollaborationRemoteMapper.toTaskMutationResponse(envelope)
         assertEquals(CollaborationMutationResult.Applied, response.result)
         assertEquals(GroupTaskId("task-1"), response.taskId)
+        assertEquals(CollaborationGroupId("group-1"), response.groupId)
         assertEquals(GroupTaskStatus.COMPLETED, response.status)
         assertEquals(8L, response.version)
 

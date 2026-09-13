@@ -36,6 +36,7 @@ import kotlinx.serialization.json.longOrNull
 data class CollaborationTaskMutationResponse(
     val result: CollaborationMutationResult,
     val taskId: GroupTaskId? = null,
+    val groupId: CollaborationGroupId? = null,
     val assigneeId: UserId? = null,
     val status: GroupTaskStatus? = null,
     val version: Long? = null,
@@ -314,6 +315,7 @@ object CollaborationRemoteMapper {
         return CollaborationTaskMutationResponse(
             result = toTaskMutationResult(dto),
             taskId = data.stringValue("task_id")?.let(::parseTaskId),
+            groupId = data.stringValue("group_id")?.let(::parseGroupId),
             assigneeId = data.stringValue("assignee_id")?.let(::parseUserId),
             status = data.stringValue("status")?.let(::parseTaskStatus),
             version = data.longValue("version"),
@@ -437,6 +439,12 @@ object CollaborationRemoteMapper {
         GroupTaskId(raw)
     } catch (failure: IllegalArgumentException) {
         throw CollaborationMappingException("Invalid task_id in collaboration mutation data", failure)
+    }
+
+    private fun parseGroupId(raw: String): CollaborationGroupId = try {
+        CollaborationGroupId(raw)
+    } catch (failure: IllegalArgumentException) {
+        throw CollaborationMappingException("Invalid group_id in collaboration mutation data", failure)
     }
 
     private fun parseUserId(raw: String): UserId = try {

@@ -128,6 +128,10 @@ $existingTaskRpcNames = @(
 foreach ($rpc in $taskRpcNames) {
     Require-Function $rpc "" ($existingTaskRpcNames -contains $rpc)
     Require-LockOrder $rpc
+    $rpcMatch = Get-FunctionMatch $rpc
+    $rpcBody = $rpcMatch.Value.ToLowerInvariant()
+    $groupTargetPattern = "'group_id'\s*,\s*(?:p_group_id|v_task\.group_id|v_task_group_id)"
+    $allPassed = (Test-Required "RPC $rpc exposes group_id in task envelope data" ($rpcBody -match $groupTargetPattern)) -and $allPassed
 }
 
 Require-Text "TODO to IN_PROGRESS state transition" "status\s*(?:<>|=)\s*'todo'[\s\S]+status\s*=\s*'in_progress'"

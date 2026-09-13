@@ -5,6 +5,7 @@ import com.smartreminder.data.local.room.entity.collaboration.CachedGroupInviteE
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupMemberEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskReminderEntity
+import com.smartreminder.data.local.room.mapper.GroupTaskMapper
 import com.smartreminder.data.local.room.relation.GroupTaskWithRemindersEntity
 import com.smartreminder.data.remote.collaboration.CollaborationGroupRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationInviteRemoteDto
@@ -45,6 +46,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -159,6 +161,38 @@ class DefaultCollaborationRepositoryTaskTest {
     }
 
     @Test
+    fun `refresh started while task rpc is pending cannot overwrite post mutation refresh`() = runTest {
+        val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Old")))
+        val remote = FakeTaskRemote().apply {
+            taskDetailsByCall = listOf(
+                listOf(remoteDetails(title = "Old")),
+                listOf(remoteDetails(title = "New"))
+            )
+            blockNextTaskMutation()
+        }
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        val mutation = async {
+            repository.startTask(StartGroupTaskCommand(taskId, expectedVersion = 0L))
+        }
+        remote.taskMutationStarted.await()
+
+        remote.blockNextTaskDetails()
+        val staleRefresh = async { repository.refreshTasks(groupId) }
+        remote.taskDetailsStarted.await()
+
+        remote.taskMutationCompletion.complete(Unit)
+        assertEquals(CollaborationMutationResult.Applied, mutation.await())
+
+        remote.taskDetailsCompletion.complete(Unit)
+        assertEquals(CollaborationMutationResult.Applied, staleRefresh.await())
+        assertEquals(
+            listOf("New"),
+            repository.observeTasks(groupId).first().map { it.title }
+        )
+    }
+
+    @Test
     fun `conflict refreshes authoritative task cache and preserves conflict result`() = runTest {
         val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Stale")))
         val remote = FakeTaskRemote().apply {
@@ -191,6 +225,50 @@ class DefaultCollaborationRepositoryTaskTest {
         assertTrue(result is CollaborationMutationResult.Conflict)
         assertEquals(listOf("Stale"), repository.observeTasks(groupId).first().map { it.title })
         assertEquals(0, cache.replaceTasksCalls)
+    }
+
+    @Test
+    fun `cache lookup failure never replaces authoritative applied or conflict result`() = runTest {
+        listOf("APPLIED", "CONFLICT").forEach { status ->
+            val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Keep"))).apply {
+                findTaskGroupFailure = IllegalStateException("cache unavailable")
+            }
+            val remote = FakeTaskRemote().apply {
+                taskMutationEnvelope = CollaborationMutationEnvelopeRemoteDto(status = status)
+            }
+            val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+            val result = repository.startTask(StartGroupTaskCommand(taskId, 0L))
+
+            if (status == "APPLIED") {
+                assertEquals(CollaborationMutationResult.Applied, result)
+            } else {
+                assertTrue(result is CollaborationMutationResult.Conflict)
+            }
+            assertEquals(0, remote.fetchTaskDetailsCalls)
+        }
+    }
+
+    @Test
+    fun `uncached existing task mutation uses envelope group for authoritative refresh`() = runTest {
+        val cache = FakeTaskCache(cachedDetails = emptyList())
+        val remote = FakeTaskRemote().apply {
+            taskDetails = listOf(remoteDetails(title = "Server"))
+            taskMutationEnvelope = CollaborationMutationEnvelopeRemoteDto(
+                status = "APPLIED",
+                data = kotlinx.serialization.json.buildJsonObject {
+                    put("group_id", groupId.value)
+                }
+            )
+        }
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        assertEquals(
+            CollaborationMutationResult.Applied,
+            repository.startTask(StartGroupTaskCommand(taskId, 0L))
+        )
+        assertEquals(1, remote.fetchTaskDetailsCalls)
+        assertEquals(listOf("Server"), repository.observeTasks(groupId).first().map { it.title })
     }
 
     @Test
@@ -314,6 +392,42 @@ class DefaultCollaborationRepositoryTaskTest {
         assertTrue(repository.observeTasks(groupId).first().isEmpty())
     }
 
+    @Test
+    fun `late task access loss from an old session cannot evict the new session cache`() = runTest {
+        listOf("NOT_AUTHORIZED", "NOT_FOUND").forEach { status ->
+            val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Session A")))
+            val remote = FakeTaskRemote().apply {
+                taskMutationEnvelope = CollaborationMutationEnvelopeRemoteDto(status = status)
+                blockNextTaskMutation()
+            }
+            val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+            val mutation = async {
+                repository.startTask(StartGroupTaskCommand(taskId, expectedVersion = 0L))
+            }
+            remote.taskMutationStarted.await()
+
+            repository.clearSessionCache()
+            cache.seed(cachedDetails(title = "Session B"))
+            remote.taskMutationCompletion.complete(Unit)
+
+            val result = mutation.await()
+            if (status == "NOT_AUTHORIZED") {
+                assertEquals(
+                    CollaborationMutationResult.NotAuthorized(CollaborationError.NotAuthorized),
+                    result
+                )
+            } else {
+                assertEquals(
+                    CollaborationMutationResult.Failure(CollaborationError.NotFound),
+                    result
+                )
+            }
+            assertEquals(listOf("Session B"), repository.observeTasks(groupId).first().map { it.title })
+            assertEquals(0, cache.removeTasksCalls)
+        }
+    }
+
     private fun cachedDetails(title: String): GroupTaskDetails {
         val task = CollaborationRemoteDataSourceTaskFixtures.domainTask(
             id = taskId.value,
@@ -384,6 +498,7 @@ private class FakeTaskCache(
         private set
     var removeTasksCalls = 0
         private set
+    var findTaskGroupFailure: Throwable? = null
 
     init {
         val details = cachedDetails.map { GroupTaskWithRemindersEntity(
@@ -435,10 +550,22 @@ private class FakeTaskCache(
     }
 
     override suspend fun findTaskGroupId(taskId: String): String? = taskFlows.values
-        .asSequence()
-        .flatMap { it.value.asSequence() }
-        .firstOrNull { it.id == taskId }
-        ?.groupId
+        .let { flows ->
+            findTaskGroupFailure?.let { throw it }
+            flows.asSequence()
+                .flatMap { it.value.asSequence() }
+                .firstOrNull { it.id == taskId }
+                ?.groupId
+        }
+
+    suspend fun seed(details: GroupTaskDetails) {
+        val relation = GroupTaskMapper.toEntity(details)
+        replaceTasks(
+            groupId = details.task.groupId.value,
+            tasks = listOf(relation.task),
+            reminders = relation.reminders
+        )
+    }
 
     override suspend fun clearAll() {
         taskFlows.values.forEach { it.value = emptyList() }
@@ -458,10 +585,18 @@ private class FakeTaskRemote : CollaborationRemoteDataSource {
     val taskMutationCalls = mutableListOf<String>()
     val taskDetailsStarted = CompletableDeferred<Unit>()
     val taskDetailsCompletion = CompletableDeferred<Unit>()
+    val taskMutationStarted = CompletableDeferred<Unit>()
+    val taskMutationCompletion = CompletableDeferred<Unit>()
+    var taskDetailsByCall: List<List<CollaborationTaskDetailsRemoteDto>>? = null
     private var blockNextTaskDetails = false
+    private var blockNextTaskMutation = false
 
     fun blockNextTaskDetails() {
         blockNextTaskDetails = true
+    }
+
+    fun blockNextTaskMutation() {
+        blockNextTaskMutation = true
     }
 
     override suspend fun fetchGroups(): List<CollaborationGroupRemoteDto> = emptyList()
@@ -471,6 +606,7 @@ private class FakeTaskRemote : CollaborationRemoteDataSource {
 
     override suspend fun fetchTaskDetails(groupId: String): List<CollaborationTaskDetailsRemoteDto> {
         fetchTaskDetailsCalls += 1
+        val callNumber = fetchTaskDetailsCalls
         fetchTaskDetailsGroupIds += groupId
         taskDetailsFailure?.let { throw it }
         if (blockNextTaskDetails) {
@@ -478,7 +614,7 @@ private class FakeTaskRemote : CollaborationRemoteDataSource {
             taskDetailsStarted.complete(Unit)
             taskDetailsCompletion.await()
         }
-        return taskDetails
+        return taskDetailsByCall?.getOrNull(callNumber - 1) ?: taskDetails
     }
 
     override suspend fun createGroup(command: CreateGroupCommand) = applied()
@@ -527,8 +663,13 @@ private class FakeTaskRemote : CollaborationRemoteDataSource {
         return taskMutationResult()
     }
 
-    private fun taskMutationResult(): CollaborationMutationEnvelopeRemoteDto {
+    private suspend fun taskMutationResult(): CollaborationMutationEnvelopeRemoteDto {
         taskMutationFailure?.let { throw it }
+        if (blockNextTaskMutation) {
+            blockNextTaskMutation = false
+            taskMutationStarted.complete(Unit)
+            taskMutationCompletion.await()
+        }
         return taskMutationEnvelope
     }
 

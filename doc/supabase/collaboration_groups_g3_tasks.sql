@@ -198,7 +198,12 @@ begin
     for update;
 
     if not found or v_group.deleted_at is not null then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', p_group_id)
+        );
     end if;
 
     -- Retry paths lock the group before attempting to lock the existing task.
@@ -224,7 +229,12 @@ begin
       and gm.user_id = v_actor;
 
     if v_actor_role is null then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', p_group_id)
+        );
     end if;
 
     select gm.role
@@ -237,7 +247,8 @@ begin
         return private.collaboration_mutation_envelope(
             'NOT_FOUND',
             'MEMBER_NOT_FOUND',
-            'The assignee is not a current group member'
+            'The assignee is not a current group member',
+            jsonb_build_object('group_id', p_group_id)
         );
     end if;
 
@@ -278,7 +289,12 @@ begin
         for update;
 
         if not found then
-            return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+            return private.collaboration_mutation_envelope(
+                'NOT_FOUND',
+                'NOT_FOUND',
+                null,
+                jsonb_build_object('group_id', p_group_id)
+            );
         end if;
 
         if v_existing.group_id <> p_group_id
@@ -286,7 +302,8 @@ begin
             return private.collaboration_mutation_envelope(
                 'NOT_AUTHORIZED',
                 'NOT_AUTHORIZED',
-                'The client task ID is not owned by this actor and group'
+                'The client task ID is not owned by this actor and group',
+                jsonb_build_object('group_id', p_group_id)
             );
         end if;
 
@@ -309,6 +326,7 @@ begin
                 null,
                 jsonb_build_object(
                     'task_id', p_task_id,
+                    'group_id', p_group_id,
                     'version', v_existing.version,
                     'idempotent', true
                 )
@@ -321,6 +339,7 @@ begin
             'The client task ID was already used with a different payload',
             jsonb_build_object(
                 'task_id', p_task_id,
+                'group_id', p_group_id,
                 'version', v_existing.version
             )
         );
@@ -336,6 +355,7 @@ begin
         null,
         jsonb_build_object(
             'task_id', p_task_id,
+            'group_id', p_group_id,
             'version', 0,
             'idempotent', false
         )
@@ -345,7 +365,8 @@ exception
         return private.collaboration_mutation_envelope(
             'CONFLICT',
             'CONFLICT',
-            'The task command could not acquire locks; retry'
+            'The task command could not acquire locks; retry',
+            jsonb_build_object('group_id', p_group_id)
         );
 end;
 $function$;
@@ -423,7 +444,12 @@ begin
     for update;
 
     if not found or v_group.deleted_at is not null then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     select *
@@ -434,7 +460,12 @@ begin
     for update;
 
     if not found then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     perform 1
@@ -451,12 +482,22 @@ begin
       and gm.user_id = v_actor;
 
     if v_actor_role is null then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     if v_actor <> v_task.created_by
        and v_actor_role not in ('OWNER', 'ADMIN') then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     if v_task.version <> p_expected_version then
@@ -466,6 +507,7 @@ begin
             'The task version is stale',
             jsonb_build_object(
                 'task_id', p_task_id,
+                'group_id', v_task.group_id,
                 'current_version', v_task.version
             )
         );
@@ -481,7 +523,8 @@ begin
         return private.collaboration_mutation_envelope(
             'NOT_FOUND',
             'MEMBER_NOT_FOUND',
-            'The assignee is not a current group member'
+            'The assignee is not a current group member',
+            jsonb_build_object('group_id', v_task.group_id)
         );
     end if;
 
@@ -501,7 +544,8 @@ begin
         return private.collaboration_mutation_envelope(
             'CONFLICT',
             'CONFLICT',
-            'The task version is stale'
+            'The task version is stale',
+            jsonb_build_object('group_id', v_task.group_id)
         );
     end if;
 
@@ -517,14 +561,19 @@ begin
         'APPLIED',
         null,
         null,
-        jsonb_build_object('task_id', p_task_id, 'version', v_new_version)
+        jsonb_build_object(
+            'task_id', p_task_id,
+            'group_id', v_task.group_id,
+            'version', v_new_version
+        )
     );
 exception
     when deadlock_detected then
         return private.collaboration_mutation_envelope(
             'CONFLICT',
             'CONFLICT',
-            'The task command could not acquire locks; retry'
+            'The task command could not acquire locks; retry',
+            jsonb_build_object('group_id', v_task_group_id)
         );
 end;
 $function$;
@@ -585,7 +634,12 @@ begin
     for update;
 
     if not found or v_group.deleted_at is not null then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     select *
@@ -596,7 +650,12 @@ begin
     for update;
 
     if not found then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     perform 1
@@ -613,12 +672,22 @@ begin
       and gm.user_id = v_actor;
 
     if v_actor_role is null then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     if v_actor <> v_task.created_by
        and v_actor_role not in ('OWNER', 'ADMIN') then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     if v_task.version <> p_expected_version then
@@ -628,6 +697,7 @@ begin
             'The task version is stale',
             jsonb_build_object(
                 'task_id', p_task_id,
+                'group_id', v_task.group_id,
                 'current_version', v_task.version
             )
         );
@@ -643,7 +713,8 @@ begin
         return private.collaboration_mutation_envelope(
             'NOT_FOUND',
             'MEMBER_NOT_FOUND',
-            'The assignee is not a current group member'
+            'The assignee is not a current group member',
+            jsonb_build_object('group_id', v_task.group_id)
         );
     end if;
 
@@ -654,6 +725,7 @@ begin
             null,
             jsonb_build_object(
                 'task_id', p_task_id,
+                'group_id', v_task.group_id,
                 'version', v_task.version,
                 'no_op', true
             )
@@ -673,7 +745,8 @@ begin
         return private.collaboration_mutation_envelope(
             'CONFLICT',
             'CONFLICT',
-            'The task version is stale'
+            'The task version is stale',
+            jsonb_build_object('group_id', v_task.group_id)
         );
     end if;
 
@@ -683,6 +756,7 @@ begin
         null,
         jsonb_build_object(
             'task_id', p_task_id,
+            'group_id', v_task.group_id,
             'assignee_id', p_assignee_id,
             'version', v_new_version
         )
@@ -692,7 +766,8 @@ exception
         return private.collaboration_mutation_envelope(
             'CONFLICT',
             'CONFLICT',
-            'The task command could not acquire locks; retry'
+            'The task command could not acquire locks; retry',
+            jsonb_build_object('group_id', v_task_group_id)
         );
 end;
 $function$;
@@ -748,7 +823,12 @@ begin
     for update;
 
     if not found or v_group.deleted_at is not null then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     select *
@@ -759,7 +839,12 @@ begin
     for update;
 
     if not found then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     select gm.role
@@ -770,7 +855,12 @@ begin
     for update;
 
     if v_actor_role is null or v_actor <> v_task.assignee_id then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     if v_task.version <> p_expected_version then
@@ -780,6 +870,7 @@ begin
             'The task version is stale',
             jsonb_build_object(
                 'task_id', p_task_id,
+                'group_id', v_task.group_id,
                 'current_version', v_task.version
             )
         );
@@ -789,7 +880,8 @@ begin
         return private.collaboration_mutation_envelope(
             'INVALID_STATE',
             'INVALID_STATE',
-            'Only TODO tasks can be started'
+            'Only TODO tasks can be started',
+            jsonb_build_object('group_id', v_task.group_id)
         );
     end if;
 
@@ -803,21 +895,32 @@ begin
       and version = p_expected_version;
 
     if not found then
-        return private.collaboration_mutation_envelope('CONFLICT', 'CONFLICT');
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     return private.collaboration_mutation_envelope(
         'APPLIED',
         null,
         null,
-        jsonb_build_object('task_id', p_task_id, 'status', 'IN_PROGRESS', 'version', v_new_version)
+        jsonb_build_object(
+            'task_id', p_task_id,
+            'group_id', v_task.group_id,
+            'status', 'IN_PROGRESS',
+            'version', v_new_version
+        )
     );
 exception
     when deadlock_detected then
         return private.collaboration_mutation_envelope(
             'CONFLICT',
             'CONFLICT',
-            'The task command could not acquire locks; retry'
+            'The task command could not acquire locks; retry',
+            jsonb_build_object('group_id', v_task_group_id)
         );
 end;
 $function$;
@@ -873,7 +976,12 @@ begin
     for update;
 
     if not found or v_group.deleted_at is not null then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     select *
@@ -884,7 +992,12 @@ begin
     for update;
 
     if not found then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     select gm.role
@@ -895,7 +1008,12 @@ begin
     for update;
 
     if v_actor_role is null or v_actor <> v_task.assignee_id then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     if v_task.version <> p_expected_version then
@@ -905,6 +1023,7 @@ begin
             'The task version is stale',
             jsonb_build_object(
                 'task_id', p_task_id,
+                'group_id', v_task.group_id,
                 'current_version', v_task.version
             )
         );
@@ -914,7 +1033,8 @@ begin
         return private.collaboration_mutation_envelope(
             'INVALID_STATE',
             'INVALID_STATE',
-            'Only TODO or IN_PROGRESS tasks can be completed'
+            'Only TODO or IN_PROGRESS tasks can be completed',
+            jsonb_build_object('group_id', v_task.group_id)
         );
     end if;
 
@@ -928,21 +1048,32 @@ begin
       and version = p_expected_version;
 
     if not found then
-        return private.collaboration_mutation_envelope('CONFLICT', 'CONFLICT');
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     return private.collaboration_mutation_envelope(
         'APPLIED',
         null,
         null,
-        jsonb_build_object('task_id', p_task_id, 'status', 'COMPLETED', 'version', v_new_version)
+        jsonb_build_object(
+            'task_id', p_task_id,
+            'group_id', v_task.group_id,
+            'status', 'COMPLETED',
+            'version', v_new_version
+        )
     );
 exception
     when deadlock_detected then
         return private.collaboration_mutation_envelope(
             'CONFLICT',
             'CONFLICT',
-            'The task command could not acquire locks; retry'
+            'The task command could not acquire locks; retry',
+            jsonb_build_object('group_id', v_task_group_id)
         );
 end;
 $function$;
@@ -998,7 +1129,12 @@ begin
     for update;
 
     if not found or v_group.deleted_at is not null then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     select *
@@ -1009,7 +1145,12 @@ begin
     for update;
 
     if not found then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     select gm.role
@@ -1020,12 +1161,22 @@ begin
     for update;
 
     if v_actor_role is null then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     if v_actor <> v_task.created_by
        and v_actor_role not in ('OWNER', 'ADMIN') then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     if v_task.version <> p_expected_version then
@@ -1035,6 +1186,7 @@ begin
             'The task version is stale',
             jsonb_build_object(
                 'task_id', p_task_id,
+                'group_id', v_task.group_id,
                 'current_version', v_task.version
             )
         );
@@ -1044,7 +1196,8 @@ begin
         return private.collaboration_mutation_envelope(
             'INVALID_STATE',
             'INVALID_STATE',
-            'Only TODO or IN_PROGRESS tasks can be cancelled'
+            'Only TODO or IN_PROGRESS tasks can be cancelled',
+            jsonb_build_object('group_id', v_task.group_id)
         );
     end if;
 
@@ -1058,21 +1211,32 @@ begin
       and version = p_expected_version;
 
     if not found then
-        return private.collaboration_mutation_envelope('CONFLICT', 'CONFLICT');
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     return private.collaboration_mutation_envelope(
         'APPLIED',
         null,
         null,
-        jsonb_build_object('task_id', p_task_id, 'status', 'CANCELLED', 'version', v_new_version)
+        jsonb_build_object(
+            'task_id', p_task_id,
+            'group_id', v_task.group_id,
+            'status', 'CANCELLED',
+            'version', v_new_version
+        )
     );
 exception
     when deadlock_detected then
         return private.collaboration_mutation_envelope(
             'CONFLICT',
             'CONFLICT',
-            'The task command could not acquire locks; retry'
+            'The task command could not acquire locks; retry',
+            jsonb_build_object('group_id', v_task_group_id)
         );
 end;
 $function$;
@@ -1128,7 +1292,12 @@ begin
     for update;
 
     if not found or v_group.deleted_at is not null then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     select *
@@ -1139,7 +1308,12 @@ begin
     for update;
 
     if not found then
-        return private.collaboration_mutation_envelope('NOT_FOUND', 'NOT_FOUND');
+        return private.collaboration_mutation_envelope(
+            'NOT_FOUND',
+            'NOT_FOUND',
+            null,
+            jsonb_build_object('group_id', v_task_group_id)
+        );
     end if;
 
     select gm.role
@@ -1150,12 +1324,22 @@ begin
     for update;
 
     if v_actor_role is null then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     if v_actor <> v_task.created_by
        and v_actor_role not in ('OWNER', 'ADMIN') then
-        return private.collaboration_mutation_envelope('NOT_AUTHORIZED', 'NOT_AUTHORIZED');
+        return private.collaboration_mutation_envelope(
+            'NOT_AUTHORIZED',
+            'NOT_AUTHORIZED',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     if v_task.version <> p_expected_version then
@@ -1165,6 +1349,7 @@ begin
             'The task version is stale',
             jsonb_build_object(
                 'task_id', p_task_id,
+                'group_id', v_task.group_id,
                 'current_version', v_task.version
             )
         );
@@ -1174,7 +1359,8 @@ begin
         return private.collaboration_mutation_envelope(
             'INVALID_STATE',
             'INVALID_STATE',
-            'Only completed or cancelled tasks can be reopened'
+            'Only completed or cancelled tasks can be reopened',
+            jsonb_build_object('group_id', v_task.group_id)
         );
     end if;
 
@@ -1188,21 +1374,32 @@ begin
       and version = p_expected_version;
 
     if not found then
-        return private.collaboration_mutation_envelope('CONFLICT', 'CONFLICT');
+        return private.collaboration_mutation_envelope(
+            'CONFLICT',
+            'CONFLICT',
+            null,
+            jsonb_build_object('group_id', v_task.group_id)
+        );
     end if;
 
     return private.collaboration_mutation_envelope(
         'APPLIED',
         null,
         null,
-        jsonb_build_object('task_id', p_task_id, 'status', 'TODO', 'version', v_new_version)
+        jsonb_build_object(
+            'task_id', p_task_id,
+            'group_id', v_task.group_id,
+            'status', 'TODO',
+            'version', v_new_version
+        )
     );
 exception
     when deadlock_detected then
         return private.collaboration_mutation_envelope(
             'CONFLICT',
             'CONFLICT',
-            'The task command could not acquire locks; retry'
+            'The task command could not acquire locks; retry',
+            jsonb_build_object('group_id', v_task_group_id)
         );
 end;
 $function$;
