@@ -5,12 +5,14 @@ import com.smartreminder.domain.model.collaboration.GroupInvite
 import com.smartreminder.domain.model.collaboration.GroupMember
 import com.smartreminder.domain.model.collaboration.GroupRole
 import com.smartreminder.domain.model.collaboration.GroupTask
+import com.smartreminder.domain.model.collaboration.GroupTaskDetails
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
 import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
 import com.smartreminder.domain.model.collaboration.ids.GroupTaskId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import java.time.Instant
 
 data class CreateGroupTaskCommand(
@@ -55,10 +57,22 @@ interface CollaborationRepository {
     fun observeGroup(groupId: CollaborationGroupId): Flow<CollaborationGroup?>
     fun observeMembers(groupId: CollaborationGroupId): Flow<List<GroupMember>>
     fun observeTasks(groupId: CollaborationGroupId): Flow<List<GroupTask>>
+    fun observeTaskDetails(groupId: CollaborationGroupId): Flow<List<GroupTaskDetails>> =
+        observeTasks(groupId).map { tasks -> tasks.map(::GroupTaskDetails) }
+
+    fun observeTaskDetails(
+        groupId: CollaborationGroupId,
+        taskId: GroupTaskId
+    ): Flow<GroupTaskDetails?> =
+        observeTaskDetails(groupId).map { details ->
+            details.firstOrNull { it.task.id == taskId }
+        }
     fun observeInvites(): Flow<List<GroupInvite>>
 
     suspend fun refreshGroups(): CollaborationMutationResult
     suspend fun refreshGroup(groupId: CollaborationGroupId): CollaborationMutationResult
+    suspend fun refreshTasks(groupId: CollaborationGroupId): CollaborationMutationResult =
+        CollaborationMutationResult.NetworkRequired
     suspend fun refreshInvites(): CollaborationMutationResult
 
     suspend fun createGroup(command: CreateGroupCommand): CollaborationMutationResult

@@ -1,17 +1,23 @@
 package com.smartreminder.data.repository.collaboration
 
+import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskEntity
+import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskReminderEntity
+import com.smartreminder.data.local.room.mapper.GroupTaskMapper
 import com.smartreminder.data.remote.collaboration.CollaborationMutationEnvelopeRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationMappingException
 import com.smartreminder.data.remote.collaboration.CollaborationRemoteDataSource
 import com.smartreminder.data.remote.collaboration.CollaborationRemoteMapper
+import com.smartreminder.data.remote.collaboration.CollaborationTaskDetailsRemoteDto
 import com.smartreminder.data.remote.MissingSupabaseConfigurationException
 import com.smartreminder.domain.model.collaboration.CollaborationGroup
 import com.smartreminder.domain.model.collaboration.GroupInvite
 import com.smartreminder.domain.model.collaboration.GroupMember
 import com.smartreminder.domain.model.collaboration.GroupRole
 import com.smartreminder.domain.model.collaboration.GroupTask
+import com.smartreminder.domain.model.collaboration.GroupTaskDetails
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
 import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
+import com.smartreminder.domain.model.collaboration.ids.GroupTaskId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import com.smartreminder.domain.repository.AcceptInviteCommand
 import com.smartreminder.domain.repository.ChangeMemberRoleCommand
@@ -46,11 +52,12 @@ import kotlinx.serialization.json.jsonPrimitive
 import io.github.jan.supabase.exceptions.RestException
 
 /**
- * Cache-first repository for the G2 group membership surface.
+ * Cache-first repository for the G2 membership and G3 task surfaces.
  *
  * Remote mutations are deliberately online-only. A successful RPC is reported as
  * applied even if its best-effort cache refresh is unavailable; the previous cache
- * remains intact and the next refresh can reconcile it.
+ * remains intact and the next refresh can reconcile it. G3 task mutations never
+ * enqueue or project local state; the server response is the only mutation result.
  */
 class DefaultCollaborationRepository(
     private val cache: CollaborationCacheDataSource,
@@ -97,6 +104,11 @@ class DefaultCollaborationRepository(
             tasks.map(CollaborationRemoteMapper::fromCache)
         }
 
+    override fun observeTaskDetails(groupId: CollaborationGroupId): Flow<List<GroupTaskDetails>> =
+        cache.observeTaskDetails(groupId.value).map { details ->
+            GroupTaskMapper.toDetailsDomain(details)
+        }
+
     override fun observeInvites(): Flow<List<GroupInvite>> =
         cache.observeInvites().map { invites -> invites.map(CollaborationRemoteMapper::fromCache) }
 
@@ -139,6 +151,28 @@ class DefaultCollaborationRepository(
         } catch (failure: Exception) {
             val result = networkFailure(failure)
             if (result.isAccessLoss()) evictGroupIfCurrent(generation, groupId)
+            result
+        }
+    }
+
+    override suspend fun refreshTasks(groupId: CollaborationGroupId): CollaborationMutationResult {
+        val generation = currentCacheGeneration()
+        return try {
+            val remoteDetails = remote.fetchTaskDetails(groupId.value)
+            val snapshot = toTaskCacheSnapshot(groupId, remoteDetails)
+            writeCacheIfCurrent(generation) {
+                cache.replaceTasks(
+                    groupId = groupId.value,
+                    tasks = snapshot.tasks,
+                    reminders = snapshot.reminders
+                )
+            }
+            CollaborationMutationResult.Applied
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            val result = networkFailure(failure)
+            if (result.isAccessLoss()) evictTasksIfCurrent(generation, groupId)
             result
         }
     }
@@ -251,33 +285,58 @@ class DefaultCollaborationRepository(
         )
 
     override suspend fun createTask(command: CreateGroupTaskCommand): CollaborationMutationResult =
-        unsupportedTaskMutation()
+        executeTaskMutation(
+            action = { remote.createTask(command) },
+            affectedTaskGroupId = command.groupId,
+            affectedTaskId = command.taskId
+        )
 
     override suspend fun editTask(command: EditGroupTaskCommand): CollaborationMutationResult =
-        unsupportedTaskMutation()
+        executeTaskMutation(
+            action = { remote.editTask(command) },
+            affectedTaskId = command.taskId
+        )
 
     override suspend fun reassignTask(command: ReassignGroupTaskCommand): CollaborationMutationResult =
-        unsupportedTaskMutation()
+        executeTaskMutation(
+            action = { remote.reassignTask(command) },
+            affectedTaskId = command.taskId
+        )
 
     override suspend fun startTask(command: StartGroupTaskCommand): CollaborationMutationResult =
-        unsupportedTaskMutation()
+        executeTaskMutation(
+            action = { remote.startTask(command) },
+            affectedTaskId = command.taskId
+        )
 
     override suspend fun completeTask(command: CompleteGroupTaskCommand): CollaborationMutationResult =
-        unsupportedTaskMutation()
+        executeTaskMutation(
+            action = { remote.completeTask(command) },
+            affectedTaskId = command.taskId
+        )
 
     override suspend fun cancelTask(command: CancelGroupTaskCommand): CollaborationMutationResult =
-        unsupportedTaskMutation()
+        executeTaskMutation(
+            action = { remote.cancelTask(command) },
+            affectedTaskId = command.taskId
+        )
 
     override suspend fun reopenTask(command: ReopenGroupTaskCommand): CollaborationMutationResult =
-        unsupportedTaskMutation()
+        executeTaskMutation(
+            action = { remote.reopenTask(command) },
+            affectedTaskId = command.taskId
+        )
 
     private suspend fun executeMutation(
         action: suspend () -> CollaborationMutationEnvelopeRemoteDto,
         resultMapper: (CollaborationMutationEnvelopeRemoteDto) -> CollaborationMutationResult =
             CollaborationRemoteMapper::toG2MutationResult,
         afterApplied: suspend (CollaborationMutationEnvelopeRemoteDto) -> Unit = {},
+        afterConflict: suspend (CollaborationMutationEnvelopeRemoteDto) -> Unit = {},
         affectedGroupId: CollaborationGroupId? = null,
-        affectedInviteId: GroupInviteId? = null
+        affectedInviteId: GroupInviteId? = null,
+        affectedTaskGroupId: CollaborationGroupId? = null,
+        affectedTaskId: GroupTaskId? = null
     ): CollaborationMutationResult {
         val networkAvailable = try {
             network()
@@ -293,6 +352,8 @@ class DefaultCollaborationRepository(
         return try {
             val envelope = action()
             val result = resultMapper(envelope)
+            val taskGroupId = affectedTaskGroupId
+                ?: affectedTaskId?.let { resolveTaskGroupId(it, envelope) }
             if (result === CollaborationMutationResult.Applied ||
                 result is CollaborationMutationResult.Created
             ) {
@@ -303,9 +364,19 @@ class DefaultCollaborationRepository(
                 } catch (_: Exception) {
                     // The RPC already applied. Keep the truthful result and retain cache rows.
                 }
+            } else if (result.isConflict()) {
+                try {
+                    afterConflict(envelope)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // A conflict is authoritative even when its follow-up refresh is unavailable.
+                    // The prior cache remains available for an explicit retry.
+                }
             } else if (result.isAccessLoss()) {
                 if (affectedGroupId != null) evictGroup(affectedGroupId)
                 if (affectedInviteId != null) evictInvite(affectedInviteId)
+                if (taskGroupId != null) evictTasks(taskGroupId)
             }
             result
         } catch (cancelled: CancellationException) {
@@ -315,15 +386,78 @@ class DefaultCollaborationRepository(
             if (result.isAccessLoss()) {
                 if (affectedGroupId != null) evictGroup(affectedGroupId)
                 if (affectedInviteId != null) evictInvite(affectedInviteId)
+                val taskGroupId = affectedTaskGroupId
+                    ?: affectedTaskId?.let { resolveTaskGroupId(it, null) }
+                if (taskGroupId != null) evictTasks(taskGroupId)
             }
             result
         }
     }
 
+    private suspend fun executeTaskMutation(
+        action: suspend () -> CollaborationMutationEnvelopeRemoteDto,
+        affectedTaskGroupId: CollaborationGroupId? = null,
+        affectedTaskId: GroupTaskId
+    ): CollaborationMutationResult = executeMutation(
+        action = action,
+        resultMapper = CollaborationRemoteMapper::toTaskMutationResult,
+        afterApplied = { envelope ->
+            resolveTaskGroupId(affectedTaskId, envelope, affectedTaskGroupId)
+                ?.let { refreshTasks(it) }
+        },
+        afterConflict = { envelope ->
+            resolveTaskGroupId(affectedTaskId, envelope, affectedTaskGroupId)
+                ?.let { refreshTasks(it) }
+        },
+        affectedTaskGroupId = affectedTaskGroupId,
+        affectedTaskId = affectedTaskId
+    )
+
     private suspend fun refreshGroupAndList(groupId: CollaborationGroupId) {
         refreshGroups()
         refreshGroup(groupId)
     }
+
+    private data class TaskCacheSnapshot(
+        val tasks: List<CachedGroupTaskEntity>,
+        val reminders: List<CachedGroupTaskReminderEntity>
+    )
+
+    private fun toTaskCacheSnapshot(
+        groupId: CollaborationGroupId,
+        remoteDetails: List<CollaborationTaskDetailsRemoteDto>
+    ): TaskCacheSnapshot {
+        remoteDetails.forEach { details ->
+            if (details.task.groupId != groupId.value) {
+                throw CollaborationMappingException(
+                    "Task ${details.task.id} belongs to group ${details.task.groupId}, not ${groupId.value}"
+                )
+            }
+        }
+
+        val domainDetails = CollaborationRemoteMapper.toDetailsDomain(remoteDetails)
+        if (domainDetails.map { it.task.id }.distinct().size != domainDetails.size) {
+            throw CollaborationMappingException(
+                "Duplicate collaboration task ids in group ${groupId.value} snapshot"
+            )
+        }
+
+        val cacheRelations = domainDetails.map(GroupTaskMapper::toEntity)
+        return TaskCacheSnapshot(
+            tasks = cacheRelations.map { it.task },
+            reminders = cacheRelations.flatMap { it.reminders }
+        )
+    }
+
+    private suspend fun resolveTaskGroupId(
+        taskId: GroupTaskId,
+        envelope: CollaborationMutationEnvelopeRemoteDto?,
+        knownGroupId: CollaborationGroupId? = null
+    ): CollaborationGroupId? = knownGroupId
+        ?: envelope?.groupIdOrNull()
+        ?: cache.findTaskGroupId(taskId.value)
+            ?.takeIf(String::isNotBlank)
+            ?.let(::CollaborationGroupId)
 
     private suspend fun refreshInvitesAndAffectedGroup(
         envelope: CollaborationMutationEnvelopeRemoteDto
@@ -356,9 +490,6 @@ class DefaultCollaborationRepository(
         }
         return CollaborationMutationResult.Failure(error)
     }
-
-    private fun unsupportedTaskMutation(): Nothing =
-        throw UnsupportedOperationException("Group task mutations are scheduled for G3")
 
     private suspend fun currentCacheGeneration(): Long = cacheWriteMutex.withLock { cacheGeneration }
 
@@ -399,6 +530,22 @@ class DefaultCollaborationRepository(
         }
     }
 
+    private suspend fun evictTasksIfCurrent(generation: Long, groupId: CollaborationGroupId) {
+        cacheWriteMutex.withLock {
+            if (cacheGeneration == generation) {
+                cacheGeneration += 1
+                cache.removeTasksForGroup(groupId.value)
+            }
+        }
+    }
+
+    private suspend fun evictTasks(groupId: CollaborationGroupId) {
+        cacheWriteMutex.withLock {
+            cacheGeneration += 1
+            cache.removeTasksForGroup(groupId.value)
+        }
+    }
+
     private suspend fun evictInvite(inviteId: GroupInviteId) {
         cacheWriteMutex.withLock {
             cacheGeneration += 1
@@ -412,6 +559,10 @@ class DefaultCollaborationRepository(
             error is CollaborationError.NotFound
         else -> false
     }
+
+    private fun CollaborationMutationResult.isConflict(): Boolean =
+        this is CollaborationMutationResult.Conflict ||
+            (this is CollaborationMutationResult.Failure && error is CollaborationError.Conflict)
 
     private fun CollaborationMutationEnvelopeRemoteDto.groupIdOrNull(): CollaborationGroupId? =
         data["group_id"]?.jsonPrimitive?.contentOrNull

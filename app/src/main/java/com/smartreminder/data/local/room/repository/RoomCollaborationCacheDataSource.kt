@@ -6,6 +6,7 @@ import com.smartreminder.data.local.room.entity.collaboration.CachedCollaboratio
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupInviteEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupMemberEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskEntity
+import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskReminderEntity
 import com.smartreminder.data.repository.collaboration.CollaborationCacheDataSource
 import kotlinx.coroutines.flow.Flow
 
@@ -25,6 +26,8 @@ class RoomCollaborationCacheDataSource(
 
     override fun observeTasks(groupId: String): Flow<List<CachedGroupTaskEntity>> =
         dao.observeTasks(groupId)
+
+    override fun observeTaskDetails(groupId: String) = dao.observeTaskDetails(groupId)
 
     override fun observeInvites(): Flow<List<CachedGroupInviteEntity>> = dao.observeInvites()
 
@@ -66,6 +69,22 @@ class RoomCollaborationCacheDataSource(
             dao.deleteInvitesForGroup(groupId)
         }
     }
+
+    override suspend fun replaceTasks(
+        groupId: String,
+        tasks: List<CachedGroupTaskEntity>,
+        reminders: List<CachedGroupTaskReminderEntity>
+    ) {
+        database.withTransaction {
+            dao.replaceTasks(groupId, tasks, reminders)
+        }
+    }
+
+    override suspend fun removeTasksForGroup(groupId: String) {
+        dao.deleteTasksForGroup(groupId)
+    }
+
+    override suspend fun findTaskGroupId(taskId: String): String? = dao.findTaskGroupId(taskId)
 
     override suspend fun removeInvitesForGroup(groupId: String) {
         dao.deleteInvitesForGroup(groupId)
