@@ -74,6 +74,28 @@ data class CollaborationTaskDetailsRemoteDto(
     val reminders: List<CollaborationTaskReminderRemoteDto> = emptyList()
 )
 
+/**
+ * PostgREST shape for a task row with its child offsets embedded in the same
+ * snapshot. The relation name is deliberately kept explicit because this is
+ * the JSON key emitted by `select=*,group_task_reminders(*)`.
+ */
+@Serializable
+data class CollaborationTaskWithRemindersRemoteDto(
+    val id: String,
+    @SerialName("group_id") val groupId: String,
+    val title: String,
+    val description: String? = null,
+    @SerialName("created_by") val createdBy: String,
+    @SerialName("assignee_id") val assigneeId: String,
+    @SerialName("due_at") val dueAt: String,
+    val status: String,
+    val version: Long,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("updated_at") val updatedAt: String,
+    @SerialName("group_task_reminders")
+    val reminders: List<CollaborationTaskReminderRemoteDto> = emptyList()
+)
+
 /** Backward-compatible names for callers that use the domain model prefix. */
 typealias GroupTaskRemoteDto = CollaborationTaskRemoteDto
 typealias GroupTaskReminderRemoteDto = CollaborationTaskReminderRemoteDto

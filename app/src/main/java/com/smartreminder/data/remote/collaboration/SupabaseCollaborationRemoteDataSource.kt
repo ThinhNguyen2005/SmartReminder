@@ -22,6 +22,7 @@ import com.smartreminder.domain.repository.UpdateGroupCommand
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -36,17 +37,33 @@ fun interface CollaborationRpcInvoker {
     ): CollaborationMutationEnvelopeRemoteDto
 }
 
+/** Exact request contract for one group-scoped task/details PostgREST read. */
+data class CollaborationPostgrestSelectRequest(
+    val table: String,
+    val columns: String,
+    val filters: Map<String, String>
+)
+
+/** Narrow read seam for contract tests without a live Supabase client. */
+fun interface CollaborationPostgrestReadInvoker {
+    suspend fun select(
+        request: CollaborationPostgrestSelectRequest
+    ): List<CollaborationTaskWithRemindersRemoteDto>
+}
+
 /** PostgREST/RPC implementation; no Supabase type escapes this data boundary. */
 class SupabaseCollaborationRemoteDataSource private constructor(
     private val supabaseProvider: (() -> SupabaseClient)?,
-    private val rpcInvoker: CollaborationRpcInvoker
+    private val rpcInvoker: CollaborationRpcInvoker,
+    private val taskDetailsReadInvoker: CollaborationPostgrestReadInvoker?
 ) : CollaborationRemoteDataSource {
 
     constructor(supabase: SupabaseClient) : this(
         supabaseProvider = { supabase },
         rpcInvoker = CollaborationRpcInvoker { function, parameters ->
             supabase.postgrest.rpc(function, parameters).decodeAs()
-        }
+        },
+        taskDetailsReadInvoker = null
     )
 
     /** Provider-backed constructor keeps missing configuration out of app startup. */
@@ -54,12 +71,23 @@ class SupabaseCollaborationRemoteDataSource private constructor(
         supabaseProvider = supabaseProvider,
         rpcInvoker = CollaborationRpcInvoker { function, parameters ->
             supabaseProvider().postgrest.rpc(function, parameters).decodeAs()
-        }
+        },
+        taskDetailsReadInvoker = null
     )
 
     constructor(rpcInvoker: CollaborationRpcInvoker) : this(
         supabaseProvider = null,
-        rpcInvoker = rpcInvoker
+        rpcInvoker = rpcInvoker,
+        taskDetailsReadInvoker = null
+    )
+
+    constructor(
+        taskDetailsReadInvoker: CollaborationPostgrestReadInvoker,
+        rpcInvoker: CollaborationRpcInvoker
+    ) : this(
+        supabaseProvider = null,
+        rpcInvoker = rpcInvoker,
+        taskDetailsReadInvoker = taskDetailsReadInvoker
     )
 
     private val supabase: SupabaseClient
@@ -126,20 +154,42 @@ class SupabaseCollaborationRemoteDataSource private constructor(
         groupId: String,
         taskId: String
     ): CollaborationTaskDetailsRemoteDto? {
-        val task = fetchTask(groupId, taskId) ?: return null
-        return CollaborationTaskDetailsRemoteDto(
-            task = task,
-            reminders = fetchTaskRemindersForKnownTask(task.id)
+        val rows = selectEmbeddedTaskRows(
+            CollaborationPostgrestSelectRequest(
+                table = TASKS_TABLE,
+                columns = TASK_DETAILS_COLUMNS,
+                filters = linkedMapOf(
+                    "group_id" to groupId,
+                    "id" to taskId
+                )
+            )
         )
+        if (rows.size > 1) {
+            throw CollaborationMappingException(
+                "Expected at most one collaboration task row for $taskId"
+            )
+        }
+        return rows.firstOrNull()
+            ?.let(CollaborationRemoteMapper::toDetailsRemote)
+            ?.also { details ->
+                requireTaskGroup(details.task, groupId)
+                if (details.task.id != taskId) {
+                    throw CollaborationMappingException(
+                        "Task ${details.task.id} does not match requested task $taskId"
+                    )
+                }
+            }
     }
 
     override suspend fun fetchTaskDetails(groupId: String): List<CollaborationTaskDetailsRemoteDto> =
-        fetchTasks(groupId).map { task ->
-            CollaborationTaskDetailsRemoteDto(
-                task = task,
-                reminders = fetchTaskRemindersForKnownTask(task.id)
+        selectEmbeddedTaskRows(
+            CollaborationPostgrestSelectRequest(
+                table = TASKS_TABLE,
+                columns = TASK_DETAILS_COLUMNS,
+                filters = mapOf("group_id" to groupId)
             )
-        }
+        ).map(CollaborationRemoteMapper::toDetailsRemote)
+            .onEach { details -> requireTaskGroup(details.task, groupId) }
 
     override suspend fun createGroup(command: CreateGroupCommand): CollaborationMutationEnvelopeRemoteDto =
         rpc(CREATE_GROUP_RPC, buildJsonObject {
@@ -268,6 +318,16 @@ class SupabaseCollaborationRemoteDataSource private constructor(
                     .thenBy { it.taskId }
             )
 
+    private suspend fun selectEmbeddedTaskRows(
+        request: CollaborationPostgrestSelectRequest
+    ): List<CollaborationTaskWithRemindersRemoteDto> =
+        taskDetailsReadInvoker?.select(request)
+            ?: supabase.from(request.table).select(Columns.raw(request.columns)) {
+                filter {
+                    request.filters.forEach { (column, value) -> eq(column, value) }
+                }
+            }.decodeList()
+
     private fun requireTaskGroup(task: CollaborationTaskRemoteDto, groupId: String) {
         if (task.groupId != groupId) {
             throw CollaborationMappingException(
@@ -289,6 +349,7 @@ class SupabaseCollaborationRemoteDataSource private constructor(
         const val INVITES_TABLE = "group_invites"
         const val TASKS_TABLE = "group_tasks"
         const val TASK_REMINDERS_TABLE = "group_task_reminders"
+        const val TASK_DETAILS_COLUMNS = "*,group_task_reminders(*)"
 
         const val CREATE_GROUP_RPC = "create_collaboration_group"
         const val UPDATE_GROUP_RPC = "update_collaboration_group"

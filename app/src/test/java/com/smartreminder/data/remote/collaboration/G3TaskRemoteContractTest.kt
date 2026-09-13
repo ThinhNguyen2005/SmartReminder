@@ -14,6 +14,8 @@ import com.smartreminder.domain.repository.ReopenGroupTaskCommand
 import com.smartreminder.domain.repository.StartGroupTaskCommand
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
@@ -59,6 +61,29 @@ class G3TaskRemoteContractTest {
         assertEquals("IN_PROGRESS", task.status)
         assertEquals("task-1", reminder.taskId)
         assertEquals(300L, reminder.offsetSeconds)
+
+        val embedded = Json.decodeFromString<CollaborationTaskWithRemindersRemoteDto>(
+            """
+            {
+              "id":"task-1",
+              "group_id":"group-1",
+              "title":"Prepare report",
+              "description":null,
+              "created_by":"owner-1",
+              "assignee_id":"member-1",
+              "due_at":"2026-09-12T11:00:00Z",
+              "status":"TODO",
+              "version":7,
+              "created_at":"2026-09-10T10:00:00Z",
+              "updated_at":"2026-09-11T10:00:00Z",
+              "group_task_reminders":[
+                {"task_id":"task-1","offset_seconds":300},
+                {"task_id":"task-1","offset_seconds":60}
+              ]
+            }
+            """.trimIndent()
+        )
+        assertEquals(listOf(300L, 60L), embedded.reminders.map { it.offsetSeconds })
     }
 
     @Test
@@ -193,31 +218,108 @@ class G3TaskRemoteContractTest {
             invoker.calls.map(TaskRecordingRpcInvoker.Call::function)
         )
 
-        val create = invoker.calls[0].parameters
-        assertEquals("task-1", create["p_task_id"]!!.jsonPrimitive.content)
-        assertEquals("group-1", create["p_group_id"]!!.jsonPrimitive.content)
-        assertEquals("Create report", create["p_title"]!!.jsonPrimitive.content)
-        assertEquals("Details", create["p_description"]!!.jsonPrimitive.content)
-        assertEquals("member-1", create["p_assignee_id"]!!.jsonPrimitive.content)
-        assertEquals(dueAt.toString(), create["p_due_at"]!!.jsonPrimitive.content)
         assertEquals(
-            listOf("300", "60"),
-            create["p_reminder_offsets_seconds"]!!.jsonArray.map { it.jsonPrimitive.content }
+            buildJsonObject {
+                put("p_task_id", "task-1")
+                put("p_group_id", "group-1")
+                put("p_title", "Create report")
+                put("p_description", "Details")
+                put("p_assignee_id", "member-1")
+                put("p_due_at", dueAt.toString())
+                put("p_reminder_offsets_seconds", JsonArray(listOf(JsonPrimitive(300L), JsonPrimitive(60L))))
+            },
+            invoker.calls[0].parameters
+        )
+        assertFalse(
+            invoker.calls[0].parameters["p_reminder_offsets_seconds"]!!.jsonArray
+                .any { it.jsonPrimitive.isString }
         )
 
-        val edit = invoker.calls[1].parameters
-        assertEquals("task-1", edit["p_task_id"]!!.jsonPrimitive.content)
-        assertEquals("Edited report", edit["p_title"]!!.jsonPrimitive.content)
-        assertEquals("member-2", edit["p_assignee_id"]!!.jsonPrimitive.content)
-        assertEquals(dueAt.toString(), edit["p_due_at"]!!.jsonPrimitive.content)
-        assertEquals(listOf("900"), edit["p_reminder_offsets_seconds"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertEquals("7", edit["p_expected_version"]!!.jsonPrimitive.content)
-        assertFalse(edit.containsKey("p_description"))
+        assertEquals(
+            buildJsonObject {
+                put("p_task_id", "task-1")
+                put("p_title", "Edited report")
+                put("p_assignee_id", "member-2")
+                put("p_due_at", dueAt.toString())
+                put("p_reminder_offsets_seconds", JsonArray(listOf(JsonPrimitive(900L))))
+                put("p_expected_version", 7L)
+            },
+            invoker.calls[1].parameters
+        )
+        assertFalse(invoker.calls[1].parameters["p_expected_version"]!!.jsonPrimitive.isString)
 
-        invoker.calls.drop(2).forEachIndexed { index, call ->
-            assertEquals("task-1", call.parameters["p_task_id"]!!.jsonPrimitive.content)
-            assertEquals((index + 8).toString(), call.parameters["p_expected_version"]!!.jsonPrimitive.content)
+        assertEquals(
+            buildJsonObject {
+                put("p_task_id", "task-1")
+                put("p_assignee_id", "member-2")
+                put("p_expected_version", 8L)
+            },
+            invoker.calls[2].parameters
+        )
+        assertEquals("member-2", invoker.calls[2].parameters["p_assignee_id"]!!.jsonPrimitive.content)
+
+        listOf(
+            "start_group_task" to 9L,
+            "complete_group_task" to 10L,
+            "cancel_group_task" to 11L,
+            "reopen_group_task" to 12L
+        ).forEachIndexed { index, (function, expectedVersion) ->
+            assertEquals(
+                buildJsonObject {
+                    put("p_task_id", "task-1")
+                    put("p_expected_version", expectedVersion)
+                },
+                invoker.calls[index + 3].parameters
+            )
+            assertEquals(function, invoker.calls[index + 3].function)
+            assertFalse(invoker.calls[index + 3].parameters["p_expected_version"]!!.jsonPrimitive.isString)
         }
+    }
+
+    @Test
+    fun `task details use one group scoped embedded read and sort reminder offsets`() = runTest {
+        val invoker = TaskRecordingReadInvoker(
+            rows = listOf(
+                embeddedTask(
+                    reminders = listOf(
+                        CollaborationTaskReminderRemoteDto("task-1", 300L),
+                        CollaborationTaskReminderRemoteDto("task-1", 60L)
+                    )
+                )
+            )
+        )
+        val remote = SupabaseCollaborationRemoteDataSource(
+            taskDetailsReadInvoker = invoker,
+            rpcInvoker = TaskRecordingRpcInvoker()
+        )
+
+        val details = remote.fetchTaskDetails("group-1", "task-1")
+
+        assertEquals(
+            listOf(
+                CollaborationPostgrestSelectRequest(
+                    table = "group_tasks",
+                    columns = "*,group_task_reminders(*)",
+                    filters = mapOf("group_id" to "group-1", "id" to "task-1")
+                )
+            ),
+            invoker.requests
+        )
+        assertEquals(1, invoker.requests.size)
+        assertEquals(listOf(60L, 300L), details!!.reminders.map { it.offsetSeconds })
+        assertEquals("group-1", details.task.groupId)
+    }
+
+    @Test
+    fun `missing embedded task row returns null without a second read`() = runTest {
+        val invoker = TaskRecordingReadInvoker(rows = emptyList())
+        val remote = SupabaseCollaborationRemoteDataSource(
+            taskDetailsReadInvoker = invoker,
+            rpcInvoker = TaskRecordingRpcInvoker()
+        )
+
+        assertNull(remote.fetchTaskDetails("group-1", "missing-task"))
+        assertEquals(1, invoker.requests.size)
     }
 
     @Test
@@ -258,6 +360,36 @@ class G3TaskRemoteContractTest {
         ): CollaborationMutationEnvelopeRemoteDto {
             calls += Call(function, parameters)
             return CollaborationMutationEnvelopeRemoteDto(status = "APPLIED")
+        }
+    }
+
+    private fun embeddedTask(
+        reminders: List<CollaborationTaskReminderRemoteDto>
+    ): CollaborationTaskWithRemindersRemoteDto = CollaborationTaskWithRemindersRemoteDto(
+        id = "task-1",
+        groupId = "group-1",
+        title = "Prepare report",
+        description = null,
+        createdBy = "owner-1",
+        assigneeId = "member-1",
+        dueAt = "2026-09-12T11:00:00Z",
+        status = "TODO",
+        version = 7L,
+        createdAt = "2026-09-10T10:00:00Z",
+        updatedAt = "2026-09-11T10:00:00Z",
+        reminders = reminders
+    )
+
+    private class TaskRecordingReadInvoker(
+        private val rows: List<CollaborationTaskWithRemindersRemoteDto>
+    ) : CollaborationPostgrestReadInvoker {
+        val requests = mutableListOf<CollaborationPostgrestSelectRequest>()
+
+        override suspend fun select(
+            request: CollaborationPostgrestSelectRequest
+        ): List<CollaborationTaskWithRemindersRemoteDto> {
+            requests += request
+            return rows
         }
     }
 }

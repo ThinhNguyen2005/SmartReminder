@@ -196,6 +196,40 @@ object CollaborationRemoteMapper {
         details: CollaborationTaskDetailsRemoteDto
     ): GroupTaskDetails = toDetailsDomain(details.task, details.reminders)
 
+    /** Converts a single embedded PostgREST row without losing child ordering. */
+    fun toDetailsRemote(
+        dto: CollaborationTaskWithRemindersRemoteDto
+    ): CollaborationTaskDetailsRemoteDto {
+        val reminders = dto.reminders
+            .sortedWith(
+                compareBy<CollaborationTaskReminderRemoteDto> { it.offsetSeconds }
+                    .thenBy { it.taskId }
+            )
+        reminders.forEach { reminder ->
+            if (reminder.taskId != dto.id) {
+                throw CollaborationMappingException(
+                    "Reminder ${reminder.taskId} does not belong to task ${dto.id}"
+                )
+            }
+        }
+        return CollaborationTaskDetailsRemoteDto(
+            task = CollaborationTaskRemoteDto(
+                id = dto.id,
+                groupId = dto.groupId,
+                title = dto.title,
+                description = dto.description,
+                createdBy = dto.createdBy,
+                assigneeId = dto.assigneeId,
+                dueAt = dto.dueAt,
+                status = dto.status,
+                version = dto.version,
+                createdAt = dto.createdAt,
+                updatedAt = dto.updatedAt
+            ),
+            reminders = reminders
+        )
+    }
+
     fun toDetailsDomain(
         details: List<CollaborationTaskDetailsRemoteDto>
     ): List<GroupTaskDetails> = details
