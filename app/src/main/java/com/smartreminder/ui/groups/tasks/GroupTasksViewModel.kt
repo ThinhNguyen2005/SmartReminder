@@ -77,9 +77,8 @@ class GroupTasksViewModel(
     private var mutationJob: Job? = null
     private var refreshGeneration = 0L
     private var mutationGeneration = 0L
-    private var refreshCompletedGroupId: CollaborationGroupId? = null
-    private var observedDetailsGroupId: CollaborationGroupId? = null
     private var detailsObservationReady: CompletableDeferred<Unit>? = null
+    private var authoritativeSelectedTask: AuthoritativeSelectedTask? = null
     private var retryRequest: RetryRequest? = null
     private var presentationContextGeneration = 0L
     private var selectionResolutionJob: Job? = null
@@ -185,9 +184,8 @@ class GroupTasksViewModel(
         accessRestricted.value = false
         isRefreshing.value = false
         isOffline.value = false
-        refreshCompletedGroupId = null
-        observedDetailsGroupId = null
         detailsObservationReady = null
+        authoritativeSelectedTask = null
         advancePresentationContext()
         while (effectsChannel.tryReceive().isSuccess) {
             // Drop stale navigation/mutation outcomes from the previous account.
@@ -218,9 +216,8 @@ class GroupTasksViewModel(
         accessRestricted.value = false
         isOffline.value = false
         isRefreshing.value = false
-        refreshCompletedGroupId = null
-        observedDetailsGroupId = null
         detailsObservationReady = CompletableDeferred()
+        authoritativeSelectedTask = null
         loadState.value = GroupTasksLoadState.LOADING
         detailLoadState.value = if (selectedTaskId.value == null) {
             GroupTaskDetailLoadState.IDLE
@@ -241,17 +238,19 @@ class GroupTasksViewModel(
                     .catch { throwable -> handleObservationError(groupId, throwable) }
                     .collect { details ->
                         if (selectedGroupId.value != groupId) return@collect
-                        taskDetails.value = details.filter { it.task.groupId == groupId }
-                        ready?.complete(Unit)
-                        observedDetailsGroupId = groupId
-                        updateDetailStateFromObservation()
-                        if (
-                            refreshCompletedGroupId == groupId &&
-                            selectedTaskId.value != null &&
-                            taskDetails.value.none { it.task.id == selectedTaskId.value }
+                        val observedDetails = details.filter { it.task.groupId == groupId }
+                        val authoritative = authoritativeSelectedTask
+                        taskDetails.value = if (
+                            authoritative?.groupId == groupId &&
+                            authoritative.taskId == selectedTaskId.value &&
+                            observedDetails.none { it.task.id == authoritative.taskId }
                         ) {
-                            fallbackMissingSelection(groupId)
+                            observedDetails + authoritative.details
+                        } else {
+                            observedDetails
                         }
+                        ready?.complete(Unit)
+                        updateDetailStateFromObservation()
                         render()
                     }
             } finally {
@@ -312,8 +311,8 @@ class GroupTasksViewModel(
                 membersObservationJob?.isActive != true
             ) {
                 cancelGroupObservations()
-                observedDetailsGroupId = null
                 detailsObservationReady = CompletableDeferred()
+                authoritativeSelectedTask = null
                 selectedGroupObservationJob = observeGroup(groupId)
             }
             refresh(groupId)
@@ -325,7 +324,7 @@ class GroupTasksViewModel(
         cancelSelectionResolution()
         invalidateRetry()
         val requestGeneration = ++refreshGeneration
-        refreshCompletedGroupId = null
+        authoritativeSelectedTask = null
         isRefreshing.value = true
         error.value = null
         detailError.value = null
@@ -356,7 +355,7 @@ class GroupTasksViewModel(
         }
     }
 
-    private fun applyRefreshResult(
+    private suspend fun applyRefreshResult(
         groupId: CollaborationGroupId,
         result: CollaborationMutationResult,
         requestGeneration: Long
@@ -364,15 +363,43 @@ class GroupTasksViewModel(
         when (result) {
             CollaborationMutationResult.Applied,
             is CollaborationMutationResult.Created -> {
-                refreshCompletedGroupId = groupId
                 error.value = null
                 detailError.value = null
                 isOffline.value = false
                 accessRestricted.value = false
                 retryRequest = null
-                val selectedId = selectedTaskId.value
-                if (selectedId != null && taskDetails.value.none { it.task.id == selectedId }) {
+                val selectedId = selectedTaskId.value ?: return
+                val expectedContextGeneration = presentationContextGeneration
+                val expectedUserId = currentUserId.value
+                val freshDetails = try {
+                    repository.observeTaskDetails(groupId, selectedId).first()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    return
+                }
+                if (
+                    requestGeneration != refreshGeneration ||
+                    presentationContextGeneration != expectedContextGeneration ||
+                    currentUserId.value != expectedUserId ||
+                    selectedGroupId.value != groupId ||
+                    selectedTaskId.value != selectedId
+                ) return
+                if (freshDetails == null) {
                     fallbackMissingSelection(groupId)
+                } else if (
+                    freshDetails.task.groupId == groupId &&
+                    freshDetails.task.id == selectedId
+                ) {
+                    authoritativeSelectedTask = AuthoritativeSelectedTask(
+                        groupId = groupId,
+                        taskId = selectedId,
+                        details = freshDetails
+                    )
+                    taskDetails.value = taskDetails.value
+                        .filterNot { it.task.id == selectedId } + freshDetails
+                    updateDetailStateFromObservation()
+                    render()
                 }
             }
             CollaborationMutationResult.Queued -> applyLoadError(CollaborationError.InvalidState())
@@ -456,6 +483,7 @@ class GroupTasksViewModel(
             applyLoadError(CollaborationError.NotFound)
             return
         }
+        authoritativeSelectedTask = null
         advancePresentationContext()
         selectedTaskId.value = null
         savedStateHandle[SELECTED_TASK_ID_KEY] = null
@@ -472,6 +500,7 @@ class GroupTasksViewModel(
         val groupId = selectedGroupId.value ?: return setError(GroupTasksUiError.NotFound)
         cancelSelectionResolution()
         advancePresentationContext()
+        authoritativeSelectedTask = null
         selectedTaskId.value = taskId
         savedStateHandle[SELECTED_TASK_ID_KEY] = taskId.value
         editor.value = null
@@ -498,6 +527,7 @@ class GroupTasksViewModel(
     private fun backFromTask() {
         cancelSelectionResolution()
         advancePresentationContext()
+        authoritativeSelectedTask = null
         selectedTaskId.value = null
         savedStateHandle[SELECTED_TASK_ID_KEY] = null
         editor.value = null
@@ -536,9 +566,8 @@ class GroupTasksViewModel(
         accessRestricted.value = false
         isRefreshing.value = false
         isOffline.value = false
-        refreshCompletedGroupId = null
         advancePresentationContext()
-        observedDetailsGroupId = null
+        authoritativeSelectedTask = null
     }
 
     private fun openCreateEditor() {
@@ -1170,6 +1199,12 @@ class GroupTasksViewModel(
         effectsChannel.close()
         super.onCleared()
     }
+
+    private data class AuthoritativeSelectedTask(
+        val groupId: CollaborationGroupId,
+        val taskId: GroupTaskId,
+        val details: GroupTaskDetails
+    )
 
     private data class RetryRequest(
         val pending: PendingGroupTaskMutation,

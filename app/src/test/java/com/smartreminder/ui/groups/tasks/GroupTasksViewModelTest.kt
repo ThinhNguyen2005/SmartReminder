@@ -824,6 +824,76 @@ class GroupTasksViewModelTest {
         }
 
     @Test
+    fun `when stale task observer is empty but fresh post-refresh lookup has task, then late observer cannot clear detail`() =
+        runTest(dispatcher) {
+            val refreshCompletion = CompletableDeferred<CollaborationMutationResult>()
+            val lookupGate = CompletableDeferred<Unit>()
+            val restoredDetails = details(task(taskId = taskId))
+            val otherTaskId = GroupTaskId("other-task")
+            repository.setDetails(groupId, emptyList())
+            repository.refreshTasksCompletion = refreshCompletion
+            repository.taskDetailsLookupGate = lookupGate
+            repository.setTaskDetailsLookup(groupId, taskId, restoredDetails)
+            val viewModel = GroupTasksViewModel(
+                repository = repository,
+                clock = Clock.fixed(fixedNow, ZoneOffset.UTC),
+                idGenerator = idGenerator,
+                savedStateHandle = SavedStateHandle(
+                    mapOf(
+                        GroupTasksViewModel.SELECTED_GROUP_ID_KEY to groupId.value,
+                        GroupTasksViewModel.SELECTED_TASK_ID_KEY to taskId.value
+                    )
+                )
+            )
+            advanceUntilIdle()
+            assertEquals(1, repository.refreshTasksCalls)
+
+            refreshCompletion.complete(CollaborationMutationResult.Applied)
+            advanceUntilIdle()
+            assertEquals(taskId, viewModel.uiState.value.selectedTaskId)
+            assertNull(viewModel.uiState.value.selectedTask)
+
+            lookupGate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(1, repository.taskDetailsLookupCalls)
+            assertEquals(taskId, viewModel.uiState.value.selectedTask?.task?.id)
+            assertEquals(GroupTaskDetailLoadState.CONTENT, viewModel.uiState.value.detailLoadState)
+
+            repository.setDetails(
+                groupId,
+                listOf(details(task(taskId = otherTaskId, title = "Other task")))
+            )
+            advanceUntilIdle()
+
+            assertEquals(taskId, viewModel.uiState.value.selectedTaskId)
+            assertEquals(taskId, viewModel.uiState.value.selectedTask?.task?.id)
+            assertEquals(GroupTasksScreen.DETAIL, viewModel.uiState.value.screen)
+        }
+
+    @Test
+    fun `when fresh post-refresh task lookup is null, then clears restored selection`() = runTest(dispatcher) {
+        repository.setDetails(groupId, emptyList())
+        repository.refreshTasksResult = CollaborationMutationResult.Applied
+        repository.setTaskDetailsLookup(groupId, taskId, null)
+        val viewModel = GroupTasksViewModel(
+            repository = repository,
+            clock = Clock.fixed(fixedNow, ZoneOffset.UTC),
+            idGenerator = idGenerator,
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    GroupTasksViewModel.SELECTED_GROUP_ID_KEY to groupId.value,
+                    GroupTasksViewModel.SELECTED_TASK_ID_KEY to taskId.value
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.selectedTaskId)
+        assertEquals(GroupTasksScreen.LIST, viewModel.uiState.value.screen)
+        assertEquals(GroupTasksUiError.NotFound, viewModel.uiState.value.error)
+    }
+
+    @Test
     fun `when restored task refresh is offline, then later cache emissions cannot clear selection`() = runTest(dispatcher) {
         repository.setDetails(groupId, emptyList())
         val refreshCompletion = CompletableDeferred<CollaborationMutationResult>()
@@ -1053,6 +1123,7 @@ private class FakeCollaborationRepository(
     private val groupsFlow = MutableStateFlow(groups)
     private val memberFlows = mutableMapOf<CollaborationGroupId, MutableStateFlow<List<GroupMember>>>()
     private val detailFlows = mutableMapOf<CollaborationGroupId, MutableStateFlow<List<GroupTaskDetails>>>()
+    private val taskDetailLookupFlows = mutableMapOf<Pair<CollaborationGroupId, GroupTaskId>, MutableStateFlow<GroupTaskDetails?>>()
     private val nextMemberObservationFailures = mutableMapOf<CollaborationGroupId, Throwable>()
     private val nextTaskDetailsObservationFailures = mutableMapOf<CollaborationGroupId, Throwable>()
     private val identityFlow = MutableStateFlow<UserId?>(ownerId)
@@ -1063,9 +1134,12 @@ private class FakeCollaborationRepository(
     var refreshTasksCompletion: CompletableDeferred<CollaborationMutationResult>? = null
     var detailsInitialEmissionGate: CompletableDeferred<Unit>? = null
     var observeGroupGate: CompletableDeferred<Unit>? = null
+    var taskDetailsLookupGate: CompletableDeferred<Unit>? = null
     var mutationResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var mutationCompletion: CompletableDeferred<CollaborationMutationResult>? = null
     var refreshTasksCalls = 0
+        private set
+    var taskDetailsLookupCalls = 0
         private set
     var lastCreateTask: CreateGroupTaskCommand? = null
         private set
@@ -1115,6 +1189,14 @@ private class FakeCollaborationRepository(
         detailFlows.getOrPut(groupId) { MutableStateFlow(emptyList()) }.value = details
     }
 
+    fun setTaskDetailsLookup(
+        groupId: CollaborationGroupId,
+        taskId: GroupTaskId,
+        details: GroupTaskDetails?
+    ) {
+        taskDetailLookupFlows.getOrPut(groupId to taskId) { MutableStateFlow(null) }.value = details
+    }
+
     fun failNextMemberObservation(groupId: CollaborationGroupId, throwable: Throwable) {
         nextMemberObservationFailures[groupId] = throwable
     }
@@ -1151,6 +1233,23 @@ private class FakeCollaborationRepository(
             nextTaskDetailsObservationFailures.remove(groupId)?.let { throw it }
             detailsInitialEmissionGate?.await()
             emitAll(detailsFlow)
+        }
+    }
+
+    override fun observeTaskDetails(groupId: CollaborationGroupId, taskId: GroupTaskId): Flow<GroupTaskDetails?> {
+        val lookupKey = groupId to taskId
+        val lookupFlow = taskDetailLookupFlows[lookupKey]?.asStateFlow()
+        taskDetailsLookupCalls += 1
+        return flow {
+            taskDetailsLookupGate?.await()
+            val explicitLookup = taskDetailLookupFlows.containsKey(lookupKey)
+            emit(
+                if (explicitLookup) {
+                    lookupFlow?.value
+                } else {
+                    detailFlows[groupId]?.value?.firstOrNull { it.task.id == taskId }
+                }
+            )
         }
     }
 
