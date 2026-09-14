@@ -82,12 +82,14 @@ class DefaultCollaborationRepository(
     private var cacheGeneration = 0L
     private var sessionGeneration = 0L
     private val taskCacheFences = mutableMapOf<String, Long>()
+    private val taskRefreshStates = mutableMapOf<String, TaskRefreshState>()
 
     override suspend fun clearSessionCache() {
         cacheWriteMutex.withLock {
             cacheGeneration += 1
             sessionGeneration += 1
             taskCacheFences.clear()
+            taskRefreshStates.clear()
             cache.clearAll()
         }
     }
@@ -163,6 +165,11 @@ class DefaultCollaborationRepository(
         return refreshTasks(groupId, expectedSessionToken = null)
     }
 
+    /**
+     * A refresh gets its own per-group fence. If same-group activity invalidates
+     * a successful remote snapshot, one coalesced successor refresh reconciles
+     * the current fence; session changes disable that successor entirely.
+     */
     private suspend fun refreshTasks(
         groupId: CollaborationGroupId,
         expectedSessionToken: Long?
@@ -171,24 +178,51 @@ class DefaultCollaborationRepository(
         if (expectedSessionToken != null && sessionToken != expectedSessionToken) {
             return CollaborationMutationResult.Applied
         }
-        val taskFence = currentTaskCacheFence(groupId)
+        val initialTaskFence = currentTaskCacheFence(groupId)
+        val taskFence = registerTaskRefresh(sessionToken, groupId, initialTaskFence)
+            ?: return CollaborationMutationResult.Applied
+        var refreshRegistered = true
         return try {
             val remoteDetails = remote.fetchTaskDetails(groupId.value)
             val snapshot = toTaskCacheSnapshot(groupId, remoteDetails)
-            writeTaskCacheIfCurrent(sessionToken, groupId, taskFence) {
-                cache.replaceTasks(
-                    groupId = groupId.value,
-                    tasks = snapshot.tasks,
-                    reminders = snapshot.reminders
-                )
+            val writeOutcome = try {
+                writeTaskCacheIfCurrent(sessionToken, groupId, taskFence) {
+                    cache.replaceTasks(
+                        groupId = groupId.value,
+                        tasks = snapshot.tasks,
+                        reminders = snapshot.reminders
+                    )
+                }
+            } finally {
+                refreshRegistered = false
             }
-            CollaborationMutationResult.Applied
+            if (writeOutcome.shouldReconcile &&
+                claimTaskRefreshRetry(sessionToken, groupId)
+            ) {
+                refreshTasks(groupId, expectedSessionToken = sessionToken)
+            } else {
+                CollaborationMutationResult.Applied
+            }
         } catch (cancelled: CancellationException) {
+            if (refreshRegistered) {
+                discardTaskRefresh(sessionToken, groupId, taskFence)
+            }
             throw cancelled
         } catch (failure: Exception) {
+            val shouldReconcile = if (refreshRegistered) {
+                discardTaskRefresh(sessionToken, groupId, taskFence)
+            } else {
+                false
+            }
             val result = networkFailure(failure)
             if (result.isAccessLoss()) {
                 evictTasksIfCurrent(sessionToken, groupId, taskFence)
+            }
+            if (!result.isAccessLoss() &&
+                shouldReconcile &&
+                claimTaskRefreshRetry(sessionToken, groupId)
+            ) {
+                refreshTasks(groupId, expectedSessionToken = sessionToken)
             }
             result
         }
@@ -609,6 +643,19 @@ class DefaultCollaborationRepository(
         val taskGroupIdAtStart: CollaborationGroupId?
     )
 
+    private data class TaskRefreshState(
+        val sessionToken: Long,
+        val activeRefreshFences: MutableMap<Long, Int> = mutableMapOf(),
+        var lastSuccessfulFence: Long? = null,
+        var reconcileRequired: Boolean = false,
+        var reconciliationSuppressed: Boolean = false,
+        var retryScheduled: Boolean = false
+    )
+
+    private data class TaskCacheWriteOutcome(
+        val shouldReconcile: Boolean
+    )
+
     private sealed interface MutationCompletion {
         data class Global(val generation: Long) : MutationCompletion
 
@@ -694,18 +741,147 @@ class DefaultCollaborationRepository(
         }
     }
 
+    private suspend fun registerTaskRefresh(
+        sessionToken: Long,
+        groupId: CollaborationGroupId,
+        initialTaskFence: Long
+    ): Long? = cacheWriteMutex.withLock {
+        if (sessionGeneration != sessionToken) {
+            return@withLock null
+        }
+        val state = taskRefreshStates[groupId.value]
+            ?.takeIf { it.sessionToken == sessionToken }
+            ?: TaskRefreshState(sessionToken).also {
+                taskRefreshStates[groupId.value] = it
+        }
+        if ((taskCacheFences[groupId.value] ?: 0L) == initialTaskFence) {
+            state.reconciliationSuppressed = false
+        }
+        state.retryScheduled = false
+        val taskFence = advanceTaskCacheFenceLocked(groupId)
+        state.activeRefreshFences[taskFence] =
+            (state.activeRefreshFences[taskFence] ?: 0) + 1
+        taskFence
+    }
+
+    private suspend fun discardTaskRefresh(
+        sessionToken: Long,
+        groupId: CollaborationGroupId,
+        taskFence: Long
+    ): Boolean = cacheWriteMutex.withLock {
+        val state = taskRefreshStates[groupId.value]
+            ?.takeIf { it.sessionToken == sessionToken }
+            ?: return@withLock false
+        decrementTaskRefreshLocked(state, taskFence)
+        val currentFence = taskCacheFences[groupId.value] ?: 0L
+            val shouldReconcile = sessionGeneration == sessionToken &&
+                state.reconcileRequired &&
+                !state.reconciliationSuppressed &&
+                (state.activeRefreshFences[currentFence] ?: 0) == 0 &&
+            state.lastSuccessfulFence != currentFence &&
+            !state.retryScheduled
+        if (shouldReconcile) {
+            state.retryScheduled = true
+        }
+        cleanupTaskRefreshStateLocked(groupId, state)
+        shouldReconcile
+    }
+
     private suspend fun writeTaskCacheIfCurrent(
         sessionToken: Long,
         groupId: CollaborationGroupId,
         taskFence: Long,
         write: suspend () -> Unit
-    ) {
-        cacheWriteMutex.withLock {
-            if (sessionGeneration == sessionToken &&
-                (taskCacheFences[groupId.value] ?: 0L) == taskFence
-            ) {
+    ): TaskCacheWriteOutcome = cacheWriteMutex.withLock {
+        val state = taskRefreshStates[groupId.value]
+            ?.takeIf { it.sessionToken == sessionToken }
+        state?.let { decrementTaskRefreshLocked(it, taskFence) }
+
+        val sessionIsCurrent = sessionGeneration == sessionToken
+        val currentFence = taskCacheFences[groupId.value] ?: 0L
+        if (sessionIsCurrent && currentFence == taskFence) {
+            try {
                 write()
+                state?.lastSuccessfulFence = taskFence
+                state?.reconcileRequired = false
+                TaskCacheWriteOutcome(shouldReconcile = false)
+            } finally {
+                state?.let { cleanupTaskRefreshStateLocked(groupId, it) }
             }
+        } else {
+            val hasCurrentRefresh = state?.activeRefreshFences?.get(currentFence)?.let { it > 0 }
+                ?: false
+            val alreadyReconciled = state?.lastSuccessfulFence == currentFence
+            val cacheSuppressed = state?.reconciliationSuppressed == true
+            val shouldReconcile = sessionIsCurrent &&
+                state != null &&
+                !hasCurrentRefresh &&
+                !alreadyReconciled &&
+                !cacheSuppressed &&
+                !state.retryScheduled
+            if (sessionIsCurrent) {
+                state?.reconcileRequired = !alreadyReconciled && !cacheSuppressed
+            }
+            if (shouldReconcile) {
+                state.retryScheduled = true
+            }
+            state?.let { cleanupTaskRefreshStateLocked(groupId, it) }
+            TaskCacheWriteOutcome(shouldReconcile = shouldReconcile)
+        }
+    }
+
+    private suspend fun claimTaskRefreshRetry(
+        sessionToken: Long,
+        groupId: CollaborationGroupId
+    ): Boolean = cacheWriteMutex.withLock {
+        if (sessionGeneration != sessionToken) {
+            return@withLock false
+        }
+        val state = taskRefreshStates[groupId.value]
+            ?.takeIf { it.sessionToken == sessionToken }
+            ?: return@withLock false
+        if (!state.retryScheduled) {
+            return@withLock false
+        }
+
+        val currentFence = taskCacheFences[groupId.value] ?: 0L
+        val hasCurrentRefresh = state.activeRefreshFences[currentFence]?.let { it > 0 }
+            ?: false
+        val alreadyReconciled = state.lastSuccessfulFence == currentFence
+        state.retryScheduled = false
+        !state.reconciliationSuppressed && !hasCurrentRefresh && !alreadyReconciled
+    }
+
+    private fun suppressTaskReconciliationLocked(groupId: CollaborationGroupId) {
+        val state = taskRefreshStates[groupId.value]
+            ?.takeIf { it.sessionToken == sessionGeneration }
+            ?: TaskRefreshState(sessionGeneration).also {
+                taskRefreshStates[groupId.value] = it
+            }
+        state.reconciliationSuppressed = true
+        state.reconcileRequired = false
+        state.retryScheduled = false
+    }
+
+    private fun decrementTaskRefreshLocked(state: TaskRefreshState, taskFence: Long) {
+        val activeCount = state.activeRefreshFences[taskFence] ?: return
+        if (activeCount <= 1) {
+            state.activeRefreshFences.remove(taskFence)
+        } else {
+            state.activeRefreshFences[taskFence] = activeCount - 1
+        }
+    }
+
+    private fun cleanupTaskRefreshStateLocked(
+        groupId: CollaborationGroupId,
+        state: TaskRefreshState
+    ) {
+        if (state.activeRefreshFences.isEmpty() &&
+            !state.retryScheduled &&
+            state.lastSuccessfulFence == null &&
+            !state.reconciliationSuppressed
+        ) {
+            taskRefreshStates.remove(groupId.value)
         }
     }
 
@@ -715,6 +891,7 @@ class DefaultCollaborationRepository(
                 cacheGeneration += 1
                 sessionGeneration += 1
                 taskCacheFences.clear()
+                taskRefreshStates.clear()
                 cache.clearAll()
             }
         }
@@ -725,6 +902,7 @@ class DefaultCollaborationRepository(
             if (cacheGeneration == generation) {
                 cacheGeneration += 1
                 advanceTaskCacheFenceLocked(groupId)
+                suppressTaskReconciliationLocked(groupId)
                 cache.removeGroup(groupId.value)
                 cache.removeInvitesForGroup(groupId.value)
             }
@@ -735,6 +913,7 @@ class DefaultCollaborationRepository(
         cacheWriteMutex.withLock {
             cacheGeneration += 1
             advanceTaskCacheFenceLocked(groupId)
+            suppressTaskReconciliationLocked(groupId)
             cache.removeGroup(groupId.value)
             cache.removeInvitesForGroup(groupId.value)
         }
@@ -750,6 +929,7 @@ class DefaultCollaborationRepository(
                 (taskCacheFences[groupId.value] ?: 0L) == taskFence
             ) {
                 advanceTaskCacheFenceLocked(groupId)
+                suppressTaskReconciliationLocked(groupId)
                 cache.removeTasksForGroup(groupId.value)
             }
         }
@@ -766,12 +946,14 @@ class DefaultCollaborationRepository(
             cacheGeneration += 1
             groupId?.let {
                 advanceTaskCacheFenceLocked(it)
+                suppressTaskReconciliationLocked(it)
                 cache.removeGroup(it.value)
                 cache.removeInvitesForGroup(it.value)
             }
             inviteId?.let { cache.removeInvite(it.value) }
             taskGroupId?.let {
                 advanceTaskCacheFenceLocked(it)
+                suppressTaskReconciliationLocked(it)
                 cache.removeTasksForGroup(it.value)
             }
         }
@@ -789,6 +971,7 @@ class DefaultCollaborationRepository(
                 return@withLock
             }
             advanceTaskCacheFenceLocked(groupId)
+            suppressTaskReconciliationLocked(groupId)
             cache.removeTasksForGroup(groupId.value)
         }
     }

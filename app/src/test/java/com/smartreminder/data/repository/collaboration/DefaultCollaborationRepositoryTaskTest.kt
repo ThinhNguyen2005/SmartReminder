@@ -41,6 +41,7 @@ import com.smartreminder.domain.repository.TransferOwnershipCommand
 import com.smartreminder.domain.repository.UpdateGroupCommand
 import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,6 +56,7 @@ class DefaultCollaborationRepositoryTaskTest {
 
     private val groupId = CollaborationGroupId("group-1")
     private val taskId = GroupTaskId("task-1")
+    private val secondTaskId = GroupTaskId("task-2")
     private val assigneeId = UserId("member-1")
     private val dueAt = Instant.parse("2026-09-12T11:00:00Z")
 
@@ -276,6 +278,114 @@ class DefaultCollaborationRepositoryTaskTest {
     }
 
     @Test
+    fun `same-group failed mutation does not discard an in-flight successful refresh`() = runTest {
+        listOf("INVALID_STATE", "NETWORK", "CANCELLED").forEach { failureMode ->
+            val cache = FakeTaskCache(
+                cachedDetails = listOf(
+                    cachedDetails(title = "Task one old"),
+                    cachedDetails(title = "Task two old", taskId = secondTaskId)
+                )
+            )
+            val remote = FakeTaskRemote().apply {
+                taskDetails = listOf(
+                    remoteDetails(title = "Task one new"),
+                    remoteDetails(title = "Task two old", taskId = secondTaskId)
+                )
+                taskMutationEnvelope = CollaborationMutationEnvelopeRemoteDto(status = "APPLIED")
+            }
+            val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+            remote.blockNextTaskDetails()
+            val mutationA = async {
+                repository.startTask(StartGroupTaskCommand(taskId, expectedVersion = 0L))
+            }
+            remote.taskDetailsStarted.await()
+
+            when (failureMode) {
+                "INVALID_STATE" -> {
+                    remote.taskMutationEnvelope =
+                        CollaborationMutationEnvelopeRemoteDto(status = "INVALID_STATE")
+                }
+                "NETWORK" -> remote.taskMutationFailure = IllegalStateException("network down")
+                "CANCELLED" -> remote.taskMutationFailure = CancellationException("cancelled")
+            }
+            val mutationB = try {
+                repository.startTask(
+                    StartGroupTaskCommand(secondTaskId, expectedVersion = 0L)
+                )
+            } catch (_: CancellationException) {
+                assertEquals("CANCELLED", failureMode)
+                null
+            }
+
+            when (failureMode) {
+                "INVALID_STATE" -> {
+                    assertTrue(mutationB is CollaborationMutationResult.InvalidState)
+                    assertTrue(
+                        (mutationB as CollaborationMutationResult.InvalidState).error is
+                            CollaborationError.InvalidState
+                    )
+                }
+                "NETWORK" -> {
+                    assertTrue(mutationB is CollaborationMutationResult.Failure)
+                    assertTrue(
+                        (mutationB as CollaborationMutationResult.Failure).error is
+                            CollaborationError.NetworkUnavailable
+                    )
+                }
+                "CANCELLED" -> assertEquals(null, mutationB)
+            }
+            remote.taskDetailsCompletion.complete(Unit)
+
+            assertEquals(CollaborationMutationResult.Applied, mutationA.await())
+            assertEquals(2, remote.fetchTaskDetailsCalls)
+            assertEquals(1, cache.replaceTasksCalls)
+            assertEquals(
+                listOf("Task one new", "Task two old"),
+                repository.observeTasks(groupId).first().map { it.title }
+            )
+        }
+    }
+
+    @Test
+    fun `same-group successful mutation supplies the single successor refresh`() = runTest {
+        val cache = FakeTaskCache(
+            cachedDetails = listOf(
+                cachedDetails(title = "Task one old"),
+                cachedDetails(title = "Task two old", taskId = secondTaskId)
+            )
+        )
+        val remote = FakeTaskRemote().apply {
+            taskDetails = listOf(
+                remoteDetails(title = "Task one new"),
+                remoteDetails(title = "Task two old", taskId = secondTaskId)
+            )
+            taskMutationEnvelope = CollaborationMutationEnvelopeRemoteDto(status = "APPLIED")
+        }
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        remote.blockNextTaskDetails()
+        val mutationA = async {
+            repository.startTask(StartGroupTaskCommand(taskId, expectedVersion = 0L))
+        }
+        remote.taskDetailsStarted.await()
+
+        assertEquals(
+            CollaborationMutationResult.Applied,
+            repository.startTask(StartGroupTaskCommand(secondTaskId, expectedVersion = 0L))
+        )
+        remote.taskDetailsCompletion.complete(Unit)
+
+        assertEquals(CollaborationMutationResult.Applied, mutationA.await())
+        assertEquals(2, remote.fetchTaskDetailsCalls)
+        assertEquals(1, cache.replaceTasksCalls)
+        assertEquals(
+            listOf("Task one new", "Task two old"),
+            repository.observeTasks(groupId).first().map { it.title }
+        )
+    }
+
+    @Test
     fun `conflict refreshes authoritative task cache and preserves conflict result`() = runTest {
         val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Stale")))
         val remote = FakeTaskRemote().apply {
@@ -476,6 +586,30 @@ class DefaultCollaborationRepositoryTaskTest {
     }
 
     @Test
+    fun `stale task refresh cannot reconcile after same-session authorization redaction`() = runTest {
+        val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Private")))
+        val remote = FakeTaskRemote().apply {
+            taskDetails = listOf(remoteDetails(title = "Stale account task"))
+            taskMutationEnvelope = CollaborationMutationEnvelopeRemoteDto(status = "NOT_AUTHORIZED")
+        }
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        remote.blockNextTaskDetails()
+        val refresh = async { repository.refreshTasks(groupId) }
+        remote.taskDetailsStarted.await()
+
+        assertEquals(
+            CollaborationMutationResult.NotAuthorized(CollaborationError.NotAuthorized),
+            repository.startTask(StartGroupTaskCommand(taskId, expectedVersion = 0L))
+        )
+        remote.taskDetailsCompletion.complete(Unit)
+
+        assertEquals(CollaborationMutationResult.Applied, refresh.await())
+        assertEquals(1, remote.fetchTaskDetailsCalls)
+        assertTrue(repository.observeTasks(groupId).first().isEmpty())
+    }
+
+    @Test
     fun `late task access loss from an old session cannot evict the new session cache`() = runTest {
         listOf("NOT_AUTHORIZED", "NOT_FOUND").forEach { status ->
             val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Session A")))
@@ -511,7 +645,11 @@ class DefaultCollaborationRepositoryTaskTest {
         }
     }
 
-    private fun cachedDetails(title: String): GroupTaskDetails {
+    private fun cachedDetails(
+        title: String,
+        taskId: GroupTaskId = this.taskId,
+        groupId: CollaborationGroupId = this.groupId
+    ): GroupTaskDetails {
         val task = CollaborationRemoteDataSourceTaskFixtures.domainTask(
             id = taskId.value,
             groupId = groupId.value,
@@ -528,7 +666,11 @@ class DefaultCollaborationRepositoryTaskTest {
         )
     }
 
-    private fun remoteDetails(title: String): CollaborationTaskDetailsRemoteDto =
+    private fun remoteDetails(
+        title: String,
+        taskId: GroupTaskId = this.taskId,
+        groupId: CollaborationGroupId = this.groupId
+    ): CollaborationTaskDetailsRemoteDto =
         CollaborationTaskDetailsRemoteDto(
             task = CollaborationTaskRemoteDto(
                 id = taskId.value,
