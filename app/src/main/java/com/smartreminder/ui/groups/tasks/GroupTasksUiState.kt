@@ -105,6 +105,7 @@ data class GroupTaskDetailUiModel(
 data class GroupTaskEditorUiState(
     val mode: GroupTaskEditorMode,
     val taskId: GroupTaskId? = null,
+    val clientTaskId: GroupTaskId? = null,
     val title: String = "",
     val description: String = "",
     val assigneeId: UserId? = null,

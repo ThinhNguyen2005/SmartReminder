@@ -33,6 +33,7 @@ import com.smartreminder.domain.repository.ReopenGroupTaskCommand
 import com.smartreminder.domain.repository.StartGroupTaskCommand
 import com.smartreminder.domain.repository.TransferOwnershipCommand
 import com.smartreminder.domain.repository.UpdateGroupCommand
+import java.io.IOException
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -43,6 +44,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -177,6 +180,43 @@ class GroupTasksViewModelTest {
         assertFalse(item.permissions.canEdit)
         assertFalse(item.permissions.canCancel)
     }
+
+    @Test
+    fun `when task observation fails, then Retry resubscribes task stream while member stream remains active`() =
+        runTest(dispatcher) {
+            repository.failNextTaskDetailsObservation(groupId, IOException("task stream unavailable"))
+            repository.refreshTasksResult = CollaborationMutationResult.NetworkRequired
+
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            assertEquals(GroupTasksUiError.Offline, viewModel.uiState.value.error)
+
+            repository.refreshTasksResult = CollaborationMutationResult.Applied
+            viewModel.onAction(GroupTasksAction.Retry)
+            advanceUntilIdle()
+
+            assertEquals("Task 1", viewModel.uiState.value.tasks.single().task.title)
+            assertNull(viewModel.uiState.value.error)
+        }
+
+    @Test
+    fun `when member observation fails, then Retry resubscribes member stream while task stream remains active`() =
+        runTest(dispatcher) {
+            repository.failNextMemberObservation(groupId, IOException("member stream unavailable"))
+            repository.refreshTasksResult = CollaborationMutationResult.NetworkRequired
+
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            assertEquals(GroupTasksUiError.Offline, viewModel.uiState.value.error)
+            assertTrue(viewModel.uiState.value.members.isEmpty())
+
+            repository.refreshTasksResult = CollaborationMutationResult.Applied
+            viewModel.onAction(GroupTasksAction.Retry)
+            advanceUntilIdle()
+
+            assertEquals(setOf(ownerId, memberId), viewModel.uiState.value.members.map { it.userId }.toSet())
+            assertNull(viewModel.uiState.value.error)
+        }
 
     @Test
     fun `when opening edit, then editor mirrors full task aggregate`() = runTest(dispatcher) {
@@ -329,7 +369,7 @@ class GroupTasksViewModelTest {
         viewModel.onAction(GroupTasksAction.OpenTask(taskId))
         viewModel.onAction(GroupTasksAction.ReassignTask(ownerId))
         advanceUntilIdle()
-        repository.currentUserId = memberId
+        repository.setDetails(groupId, listOf(details(task(assigneeId = ownerId))))
         advanceUntilIdle()
         viewModel.onAction(GroupTasksAction.StartTask)
         advanceUntilIdle()
@@ -422,6 +462,162 @@ class GroupTasksViewModelTest {
         assertEquals(2, repository.createTaskCalls)
         assertNull(viewModel.uiState.value.error)
         assertEquals(GroupTaskId("generated-1"), viewModel.uiState.value.selectedTaskId)
+    }
+
+    @Test
+    fun `when create save is retried after network failure, then the editor intent keeps one client task id`() =
+        runTest(dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            viewModel.onAction(GroupTasksAction.OpenCreateTask)
+            viewModel.onAction(GroupTasksAction.ChangeTitle("New task"))
+            viewModel.onAction(GroupTasksAction.ChangeAssignee(memberId))
+            viewModel.onAction(GroupTasksAction.ChangeDeadline(Instant.parse("2026-09-16T10:00:00Z")))
+            viewModel.onAction(GroupTasksAction.ChangeReminderOffsets(listOf(3600L)))
+            repository.mutationResult = CollaborationMutationResult.NetworkRequired
+
+            viewModel.onAction(GroupTasksAction.SaveTask)
+            advanceUntilIdle()
+            val firstCommand = repository.lastCreateTask
+
+            viewModel.onAction(GroupTasksAction.SaveTask)
+            advanceUntilIdle()
+
+            assertEquals(2, repository.createTaskCalls)
+            assertEquals(firstCommand?.taskId, repository.lastCreateTask?.taskId)
+            assertEquals(firstCommand?.taskId, viewModel.uiState.value.editor?.clientTaskId)
+        }
+
+    @Test
+    fun `when account changes, then editor and pending retry state are reset`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onAction(GroupTasksAction.OpenCreateTask)
+        viewModel.onAction(GroupTasksAction.ChangeTitle("New task"))
+        viewModel.onAction(GroupTasksAction.ChangeAssignee(memberId))
+        viewModel.onAction(GroupTasksAction.ChangeDeadline(Instant.parse("2026-09-16T10:00:00Z")))
+        viewModel.onAction(GroupTasksAction.ChangeReminderOffsets(listOf(3600L)))
+        repository.mutationResult = CollaborationMutationResult.NetworkRequired
+        viewModel.onAction(GroupTasksAction.SaveTask)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.editor != null)
+        assertEquals(GroupTasksUiError.Offline, viewModel.uiState.value.error)
+
+        repository.currentUserId = UserId("account-b")
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertNull(state.selectedGroupId)
+        assertNull(state.selectedTaskId)
+        assertNull(state.editor)
+        assertNull(state.pendingMutation)
+        assertNull(state.error)
+        assertNull(state.detailError)
+        assertEquals(GroupTasksScreen.LIST, state.screen)
+        assertEquals(GroupTasksLoadState.IDLE, state.loadState)
+        assertEquals(GroupTaskDetailLoadState.IDLE, state.detailLoadState)
+    }
+
+    @Test
+    fun `when account changes during a mutation, then late completion cannot emit old effects`() = runTest(dispatcher) {
+        val mutationCompletion = CompletableDeferred<CollaborationMutationResult>()
+        repository.currentUserId = memberId
+        repository.mutationCompletion = mutationCompletion
+        val viewModel = createViewModel()
+        val effects = mutableListOf<GroupTasksEffect>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.effects.collect { effects += it }
+        }
+        advanceUntilIdle()
+        viewModel.onAction(GroupTasksAction.OpenTask(taskId))
+        viewModel.onAction(GroupTasksAction.StartTask)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isMutationInProgress)
+
+        repository.currentUserId = UserId("account-b")
+        advanceUntilIdle()
+        val stateAfterSwitch = viewModel.uiState.value
+
+        mutationCompletion.complete(CollaborationMutationResult.Applied)
+        advanceUntilIdle()
+
+        assertNull(stateAfterSwitch.selectedGroupId)
+        assertNull(stateAfterSwitch.selectedTaskId)
+        assertNull(stateAfterSwitch.pendingMutation)
+        assertFalse(effects.any { it is GroupTasksEffect.MutationCompleted })
+        assertFalse(viewModel.uiState.value.isMutationInProgress)
+    }
+
+    @Test
+    fun `when create retry is canceled and a new editor intent starts, then it gets a new client task id`() =
+        runTest(dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            repository.mutationResult = CollaborationMutationResult.NetworkRequired
+            viewModel.onAction(GroupTasksAction.OpenCreateTask)
+            fillCreateEditor(viewModel, "First task")
+            viewModel.onAction(GroupTasksAction.SaveTask)
+            advanceUntilIdle()
+            assertEquals(GroupTaskId("generated-1"), repository.lastCreateTask?.taskId)
+
+            viewModel.onAction(GroupTasksAction.CancelEditor)
+            viewModel.onAction(GroupTasksAction.RetryLastMutation)
+            advanceUntilIdle()
+            assertEquals(1, repository.createTaskCalls)
+
+            viewModel.onAction(GroupTasksAction.OpenCreateTask)
+            fillCreateEditor(viewModel, "Second task")
+            repository.mutationResult = CollaborationMutationResult.Applied
+            viewModel.onAction(GroupTasksAction.SaveTask)
+            advanceUntilIdle()
+
+            assertEquals(2, repository.createTaskCalls)
+            assertEquals(GroupTaskId("generated-2"), repository.lastCreateTask?.taskId)
+        }
+
+    @Test
+    fun `when cancel retry is followed by navigation, then it cannot cancel a reopened task`() = runTest(dispatcher) {
+        repository.currentUserId = ownerId
+        repository.mutationResult = CollaborationMutationResult.NetworkRequired
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onAction(GroupTasksAction.OpenTask(taskId))
+        viewModel.onAction(GroupTasksAction.OpenCancelConfirmation)
+        viewModel.onAction(GroupTasksAction.ConfirmCancel)
+        advanceUntilIdle()
+        assertEquals(1, repository.cancelTaskCalls)
+
+        viewModel.onAction(GroupTasksAction.BackFromTask)
+        viewModel.onAction(GroupTasksAction.OpenTask(taskId))
+        repository.mutationResult = CollaborationMutationResult.Applied
+        viewModel.onAction(GroupTasksAction.RetryLastMutation)
+        advanceUntilIdle()
+
+        assertEquals(1, repository.cancelTaskCalls)
+        assertEquals(GroupTaskId(taskId.value), viewModel.uiState.value.selectedTaskId)
+    }
+
+    @Test
+    fun `when a new mutation fails after an offline retryable mutation, then the old retry is discarded`() = runTest(dispatcher) {
+        repository.currentUserId = memberId
+        repository.mutationResult = CollaborationMutationResult.NetworkRequired
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onAction(GroupTasksAction.OpenTask(taskId))
+        viewModel.onAction(GroupTasksAction.StartTask)
+        advanceUntilIdle()
+        assertEquals(1, repository.startTaskCalls)
+
+        repository.mutationResult = CollaborationMutationResult.Failure(CollaborationError.Unknown())
+        viewModel.onAction(GroupTasksAction.CompleteTask)
+        advanceUntilIdle()
+        assertEquals(1, repository.completeTaskCalls)
+
+        viewModel.onAction(GroupTasksAction.RetryLastMutation)
+        advanceUntilIdle()
+
+        assertEquals(1, repository.startTaskCalls)
+        assertEquals(1, repository.completeTaskCalls)
     }
 
     @Test
@@ -536,6 +732,70 @@ class GroupTasksViewModelTest {
     }
 
     @Test
+    fun `when restored task cache arrives late, then pre-refresh empty snapshot cannot clear selection`() = runTest(dispatcher) {
+        repository.setDetails(groupId, emptyList())
+        val initialDetailsGate = CompletableDeferred<Unit>()
+        val refreshCompletion = CompletableDeferred<CollaborationMutationResult>()
+        repository.detailsInitialEmissionGate = initialDetailsGate
+        repository.refreshTasksCompletion = refreshCompletion
+        val viewModel = GroupTasksViewModel(
+            repository = repository,
+            clock = Clock.fixed(fixedNow, ZoneOffset.UTC),
+            idGenerator = idGenerator,
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    GroupTasksViewModel.SELECTED_GROUP_ID_KEY to groupId.value,
+                    GroupTasksViewModel.SELECTED_TASK_ID_KEY to taskId.value
+                )
+            )
+        )
+        advanceUntilIdle()
+        assertEquals(0, repository.refreshTasksCalls)
+        assertEquals(taskId, viewModel.uiState.value.selectedTaskId)
+
+        initialDetailsGate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(1, repository.refreshTasksCalls)
+        assertEquals(taskId, viewModel.uiState.value.selectedTaskId)
+
+        refreshCompletion.complete(CollaborationMutationResult.Applied)
+        advanceUntilIdle()
+
+        assertEquals(taskId, viewModel.uiState.value.selectedTaskId)
+        assertEquals(GroupTasksScreen.DETAIL, viewModel.uiState.value.screen)
+    }
+
+    @Test
+    fun `when restored task refresh is offline, then later cache emissions cannot clear selection`() = runTest(dispatcher) {
+        repository.setDetails(groupId, emptyList())
+        val refreshCompletion = CompletableDeferred<CollaborationMutationResult>()
+        repository.refreshTasksCompletion = refreshCompletion
+        val viewModel = GroupTasksViewModel(
+            repository = repository,
+            clock = Clock.fixed(fixedNow, ZoneOffset.UTC),
+            idGenerator = idGenerator,
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    GroupTasksViewModel.SELECTED_GROUP_ID_KEY to groupId.value,
+                    GroupTasksViewModel.SELECTED_TASK_ID_KEY to taskId.value
+                )
+            )
+        )
+        advanceUntilIdle()
+        refreshCompletion.complete(CollaborationMutationResult.NetworkRequired)
+        advanceUntilIdle()
+
+        repository.setDetails(
+            groupId,
+            listOf(details(task(taskId = GroupTaskId("other-task"), title = "Other task")))
+        )
+        advanceUntilIdle()
+
+        assertEquals(taskId, viewModel.uiState.value.selectedTaskId)
+        assertEquals(GroupTasksLoadState.CACHED_OFFLINE, viewModel.uiState.value.loadState)
+    }
+
+    @Test
     fun `when refresh requests overlap, then duplicate refresh is ignored and first result wins`() = runTest(dispatcher) {
         val refreshCompletion = CompletableDeferred<CollaborationMutationResult>()
         repository.refreshTasksCompletion = refreshCompletion
@@ -641,6 +901,13 @@ class GroupTasksViewModelTest {
         }
         return viewModel
     }
+
+    private fun fillCreateEditor(viewModel: GroupTasksViewModel, title: String) {
+        viewModel.onAction(GroupTasksAction.ChangeTitle(title))
+        viewModel.onAction(GroupTasksAction.ChangeAssignee(memberId))
+        viewModel.onAction(GroupTasksAction.ChangeDeadline(Instant.parse("2026-09-16T10:00:00Z")))
+        viewModel.onAction(GroupTasksAction.ChangeReminderOffsets(listOf(3600L)))
+    }
 }
 
 private class FakeGroupTaskIdGenerator : GroupTaskIdGenerator {
@@ -657,12 +924,15 @@ private class FakeCollaborationRepository(
     private val groupsFlow = MutableStateFlow(groups)
     private val memberFlows = mutableMapOf<CollaborationGroupId, MutableStateFlow<List<GroupMember>>>()
     private val detailFlows = mutableMapOf<CollaborationGroupId, MutableStateFlow<List<GroupTaskDetails>>>()
+    private val nextMemberObservationFailures = mutableMapOf<CollaborationGroupId, Throwable>()
+    private val nextTaskDetailsObservationFailures = mutableMapOf<CollaborationGroupId, Throwable>()
     private val identityFlow = MutableStateFlow<UserId?>(ownerId)
     var currentUserId: UserId?
         get() = identityFlow.value
         set(value) { identityFlow.value = value }
     var refreshTasksResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var refreshTasksCompletion: CompletableDeferred<CollaborationMutationResult>? = null
+    var detailsInitialEmissionGate: CompletableDeferred<Unit>? = null
     var mutationResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var mutationCompletion: CompletableDeferred<CollaborationMutationResult>? = null
     var refreshTasksCalls = 0
@@ -683,7 +953,11 @@ private class FakeCollaborationRepository(
         private set
     var lastCancelTask: CancelGroupTaskCommand? = null
         private set
+    var cancelTaskCalls = 0
+        private set
     var lastReopenTask: ReopenGroupTaskCommand? = null
+        private set
+    var completeTaskCalls = 0
         private set
     var lastMutation: GroupTasksMutation? = null
         private set
@@ -711,6 +985,14 @@ private class FakeCollaborationRepository(
         detailFlows.getOrPut(groupId) { MutableStateFlow(emptyList()) }.value = details
     }
 
+    fun failNextMemberObservation(groupId: CollaborationGroupId, throwable: Throwable) {
+        nextMemberObservationFailures[groupId] = throwable
+    }
+
+    fun failNextTaskDetailsObservation(groupId: CollaborationGroupId, throwable: Throwable) {
+        nextTaskDetailsObservationFailures[groupId] = throwable
+    }
+
     override fun currentUserId(): UserId? = currentUserId
 
     override fun observeCurrentUserId(): Flow<UserId?> = identityFlow.asStateFlow()
@@ -720,14 +1002,25 @@ private class FakeCollaborationRepository(
     override fun observeGroup(groupId: CollaborationGroupId): Flow<CollaborationGroup?> =
         groupsFlow.map { groups -> groups.firstOrNull { it.id == groupId } }
 
-    override fun observeMembers(groupId: CollaborationGroupId): Flow<List<GroupMember>> =
-        memberFlows.getOrPut(groupId) { MutableStateFlow(emptyList()) }.asStateFlow()
+    override fun observeMembers(groupId: CollaborationGroupId): Flow<List<GroupMember>> {
+        val membersFlow = memberFlows.getOrPut(groupId) { MutableStateFlow(emptyList()) }.asStateFlow()
+        return flow {
+            nextMemberObservationFailures.remove(groupId)?.let { throw it }
+            emitAll(membersFlow)
+        }
+    }
 
     override fun observeTasks(groupId: CollaborationGroupId): Flow<List<GroupTask>> =
         observeTaskDetails(groupId).map { details -> details.map { it.task } }
 
-    override fun observeTaskDetails(groupId: CollaborationGroupId): Flow<List<GroupTaskDetails>> =
-        detailFlows.getOrPut(groupId) { MutableStateFlow(emptyList()) }.asStateFlow()
+    override fun observeTaskDetails(groupId: CollaborationGroupId): Flow<List<GroupTaskDetails>> {
+        val detailsFlow = detailFlows.getOrPut(groupId) { MutableStateFlow(emptyList()) }.asStateFlow()
+        return flow {
+            nextTaskDetailsObservationFailures.remove(groupId)?.let { throw it }
+            detailsInitialEmissionGate?.await()
+            emitAll(detailsFlow)
+        }
+    }
 
     override fun observeInvites(): Flow<List<GroupInvite>> = MutableStateFlow(emptyList())
 
@@ -780,11 +1073,13 @@ private class FakeCollaborationRepository(
 
     override suspend fun completeTask(command: CompleteGroupTaskCommand): CollaborationMutationResult {
         lastCompleteTask = command
+        completeTaskCalls += 1
         return mutation(GroupTasksMutation.COMPLETE)
     }
 
     override suspend fun cancelTask(command: CancelGroupTaskCommand): CollaborationMutationResult {
         lastCancelTask = command
+        cancelTaskCalls += 1
         return mutation(GroupTasksMutation.CANCEL)
     }
 
@@ -816,13 +1111,14 @@ private fun task(
     groupId: CollaborationGroupId = CollaborationGroupId("group-1"),
     taskId: GroupTaskId = GroupTaskId("task-1"),
     title: String = "Task 1",
+    assigneeId: UserId = UserId("member-1"),
     status: GroupTaskStatus = GroupTaskStatus.TODO
 ) = GroupTask(
     id = taskId,
     groupId = groupId,
     title = title,
     createdBy = ownerId,
-    assigneeId = UserId("member-1"),
+    assigneeId = assigneeId,
     dueAt = Instant.parse("2026-09-15T10:00:00Z"),
     status = status,
     version = 3L,
