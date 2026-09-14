@@ -15,8 +15,10 @@ import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.smartreminder.R
 import com.smartreminder.domain.model.collaboration.GroupMember
@@ -77,7 +79,8 @@ class GroupTasksScreenTest {
             .assertIsDisplayed()
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_overdue))
             .assertIsDisplayed()
-        composeRule.onNode(hasText("Due", substring = true)).assertIsDisplayed()
+        val dueTextPrefix = composeRule.activity.getString(R.string.groups_task_due, "")
+        composeRule.onNode(hasText(dueTextPrefix, substring = true)).assertIsDisplayed()
 
         val row = composeRule.onNodeWithContentDescription(
             composeRule.activity.getString(R.string.groups_task_open_description, task.title)
@@ -215,31 +218,45 @@ class GroupTasksScreenTest {
     }
 
     @Test
-    fun standaloneDetailScrollsAtTwoHundredPercentFontScale() {
-        val task = task()
+    fun standaloneEditorScrollsToSaveAtTwoHundredPercentFontScale() {
+        val actions = mutableListOf<GroupTasksAction>()
         val state = GroupTasksUiState(
             loadState = GroupTasksLoadState.CONTENT,
-            detailLoadState = GroupTaskDetailLoadState.CONTENT,
-            screen = GroupTasksScreen.DETAIL,
+            screen = GroupTasksScreen.EDITOR,
             selectedGroupId = groupId,
-            selectedTaskId = task.id,
-            selectedTask = GroupTaskDetailUiModel(
-                details = GroupTaskDetails(task),
-                assignee = member(memberId, "Lin"),
-                isOverdue = false,
-                permissions = GroupTaskPermissions(canEdit = true)
+            members = listOf(member(ownerId, "Ari")),
+            editor = GroupTaskEditorUiState(
+                mode = GroupTaskEditorMode.Create,
+                title = "Prepare slides",
+                description = "Review the deck notes and share the final agenda with the group before the meeting.",
+                assigneeId = ownerId,
+                dueAt = Instant.parse("2026-09-16T10:00:00Z"),
+                reminderOffsetsSeconds = listOf(900L)
             )
         )
 
         composeRule.setContent {
-            CompositionLocalProvider(LocalDensity provides androidx.compose.ui.unit.Density(1f, 2f)) {
+            val physicalDensity = LocalDensity.current.density
+            CompositionLocalProvider(
+                LocalDensity provides Density(physicalDensity, fontScale = 2f)
+            ) {
                 SmartReminderTheme {
-                    GroupTasksContent(uiState = state, onAction = {}, embedded = false)
+                    GroupTasksContent(
+                        uiState = state,
+                        onAction = { actions += it },
+                        embedded = false
+                    )
                 }
             }
         }
 
-        composeRule.onNode(hasScrollAction()).assertExists()
+        val saveLabel = composeRule.activity.getString(R.string.groups_task_save)
+        composeRule.onNode(hasScrollAction())
+            .performScrollToNode(hasText(saveLabel, substring = false))
+        composeRule.onNodeWithText(saveLabel, substring = false)
+            .assertIsDisplayed()
+            .performClick()
+        assertEquals(listOf(GroupTasksAction.SaveTask), actions)
     }
 
     @Test
