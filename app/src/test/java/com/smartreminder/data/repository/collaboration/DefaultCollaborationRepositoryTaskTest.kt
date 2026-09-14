@@ -193,6 +193,89 @@ class DefaultCollaborationRepositoryTaskTest {
     }
 
     @Test
+    fun `same-session unrelated mutation does not suppress task follow-up`() = runTest {
+        listOf("APPLIED", "CONFLICT", "NOT_AUTHORIZED").forEach { status ->
+            val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Old")))
+            val remote = FakeTaskRemote().apply {
+                taskDetails = listOf(remoteDetails(title = "Authoritative"))
+                taskMutationEnvelope = CollaborationMutationEnvelopeRemoteDto(status = status)
+                blockNextTaskMutation()
+            }
+            val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+            val mutation = async {
+                repository.startTask(StartGroupTaskCommand(taskId, expectedVersion = 0L))
+            }
+            remote.taskMutationStarted.await()
+
+            assertEquals(
+                CollaborationMutationResult.Applied,
+                repository.updateGroup(
+                    UpdateGroupCommand(
+                        groupId = CollaborationGroupId("unrelated-group"),
+                        name = "Renamed"
+                    )
+                )
+            )
+            remote.taskMutationCompletion.complete(Unit)
+
+            val result = mutation.await()
+            when (status) {
+                "APPLIED" -> assertEquals(CollaborationMutationResult.Applied, result)
+                "CONFLICT" -> assertTrue(result is CollaborationMutationResult.Conflict)
+                "NOT_AUTHORIZED" -> assertEquals(
+                    CollaborationMutationResult.NotAuthorized(CollaborationError.NotAuthorized),
+                    result
+                )
+            }
+
+            if (status == "NOT_AUTHORIZED") {
+                assertEquals(1, cache.removeTasksCalls)
+                assertTrue(repository.observeTasks(groupId).first().isEmpty())
+            } else {
+                assertEquals(1, remote.fetchTaskDetailsCalls)
+                assertEquals(
+                    listOf("Authoritative"),
+                    repository.observeTasks(groupId).first().map { it.title }
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `same-session unrelated task mutation does not suppress task follow-up`() = runTest {
+        val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Old")))
+        val remote = FakeTaskRemote().apply {
+            taskDetails = listOf(remoteDetails(title = "Authoritative"))
+            blockNextTaskMutation()
+        }
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        val mutation = async {
+            repository.startTask(StartGroupTaskCommand(taskId, expectedVersion = 0L))
+        }
+        remote.taskMutationStarted.await()
+
+        assertEquals(
+            CollaborationMutationResult.Applied,
+            repository.startTask(
+                StartGroupTaskCommand(
+                    taskId = GroupTaskId("unrelated-task"),
+                    expectedVersion = 0L
+                )
+            )
+        )
+        remote.taskMutationCompletion.complete(Unit)
+
+        assertEquals(CollaborationMutationResult.Applied, mutation.await())
+        assertEquals(1, remote.fetchTaskDetailsCalls)
+        assertEquals(
+            listOf("Authoritative"),
+            repository.observeTasks(groupId).first().map { it.title }
+        )
+    }
+
+    @Test
     fun `conflict refreshes authoritative task cache and preserves conflict result`() = runTest {
         val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Stale")))
         val remote = FakeTaskRemote().apply {

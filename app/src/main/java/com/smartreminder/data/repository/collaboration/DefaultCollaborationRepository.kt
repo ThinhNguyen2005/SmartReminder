@@ -80,10 +80,14 @@ class DefaultCollaborationRepository(
 
     private val cacheWriteMutex = Mutex()
     private var cacheGeneration = 0L
+    private var sessionGeneration = 0L
+    private val taskCacheFences = mutableMapOf<String, Long>()
 
     override suspend fun clearSessionCache() {
         cacheWriteMutex.withLock {
             cacheGeneration += 1
+            sessionGeneration += 1
+            taskCacheFences.clear()
             cache.clearAll()
         }
     }
@@ -156,11 +160,22 @@ class DefaultCollaborationRepository(
     }
 
     override suspend fun refreshTasks(groupId: CollaborationGroupId): CollaborationMutationResult {
-        val generation = currentCacheGeneration()
+        return refreshTasks(groupId, expectedSessionToken = null)
+    }
+
+    private suspend fun refreshTasks(
+        groupId: CollaborationGroupId,
+        expectedSessionToken: Long?
+    ): CollaborationMutationResult {
+        val sessionToken = currentSessionGeneration()
+        if (expectedSessionToken != null && sessionToken != expectedSessionToken) {
+            return CollaborationMutationResult.Applied
+        }
+        val taskFence = currentTaskCacheFence(groupId)
         return try {
             val remoteDetails = remote.fetchTaskDetails(groupId.value)
             val snapshot = toTaskCacheSnapshot(groupId, remoteDetails)
-            writeCacheIfCurrent(generation) {
+            writeTaskCacheIfCurrent(sessionToken, groupId, taskFence) {
                 cache.replaceTasks(
                     groupId = groupId.value,
                     tasks = snapshot.tasks,
@@ -172,10 +187,17 @@ class DefaultCollaborationRepository(
             throw cancelled
         } catch (failure: Exception) {
             val result = networkFailure(failure)
-            if (result.isAccessLoss()) evictTasksIfCurrent(generation, groupId)
+            if (result.isAccessLoss()) {
+                evictTasksIfCurrent(sessionToken, groupId, taskFence)
+            }
             result
         }
     }
+
+    private suspend fun refreshTasksForMutation(
+        groupId: CollaborationGroupId,
+        sessionToken: Long
+    ): CollaborationMutationResult = refreshTasks(groupId, sessionToken)
 
     override suspend fun refreshInvites(): CollaborationMutationResult {
         val generation = currentCacheGeneration()
@@ -333,10 +355,15 @@ class DefaultCollaborationRepository(
             CollaborationRemoteMapper::toG2MutationResult,
         afterApplied: suspend (CollaborationMutationEnvelopeRemoteDto) -> Unit = {},
         afterConflict: suspend (CollaborationMutationEnvelopeRemoteDto) -> Unit = {},
+        afterAppliedWithSession: suspend (CollaborationMutationEnvelopeRemoteDto, Long) -> Unit =
+            { envelope, _ -> afterApplied(envelope) },
+        afterConflictWithSession: suspend (CollaborationMutationEnvelopeRemoteDto, Long) -> Unit =
+            { envelope, _ -> afterConflict(envelope) },
         affectedGroupId: CollaborationGroupId? = null,
         affectedInviteId: GroupInviteId? = null,
         affectedTaskGroupId: CollaborationGroupId? = null,
-        affectedTaskId: GroupTaskId? = null
+        affectedTaskId: GroupTaskId? = null,
+        cacheScope: MutationCacheScope = MutationCacheScope.Global
     ): CollaborationMutationResult {
         val networkAvailable = try {
             network()
@@ -347,23 +374,36 @@ class DefaultCollaborationRepository(
         }
         if (!networkAvailable) return CollaborationMutationResult.NetworkRequired
 
-        val mutationGeneration = beginMutationBoundary()
+        val taskGroupAtStart = if (cacheScope == MutationCacheScope.Task) {
+            resolveTaskGroupIdOrNull(
+                taskId = affectedTaskId,
+                envelope = null,
+                knownGroupId = affectedTaskGroupId
+            )
+        } else {
+            null
+        }
+        val mutationBoundary = beginMutationBoundary(cacheScope, taskGroupAtStart)
 
         return try {
             val envelope = action()
             val result = resultMapper(envelope)
-            val completionGeneration = finishMutationBoundary(mutationGeneration)
-            if (completionGeneration != null) {
-                val taskGroupId = if (result.isAccessLoss()) {
-                    resolveTaskGroupIdOrNull(affectedTaskId, envelope, affectedTaskGroupId)
-                } else {
-                    null
-                }
+            val taskGroupId = if (cacheScope == MutationCacheScope.Task || result.isAccessLoss()) {
+                resolveTaskGroupIdOrNull(affectedTaskId, envelope, affectedTaskGroupId)
+            } else {
+                null
+            }
+            val completion = finishMutationBoundary(
+                boundary = mutationBoundary,
+                scope = cacheScope,
+                resolvedTaskGroupId = taskGroupId
+            )
+            if (completion != null && isSessionCurrent(mutationBoundary.sessionToken)) {
                 if (result === CollaborationMutationResult.Applied ||
                     result is CollaborationMutationResult.Created
                 ) {
                     try {
-                        afterApplied(envelope)
+                        afterAppliedWithSession(envelope, mutationBoundary.sessionToken)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
@@ -371,7 +411,7 @@ class DefaultCollaborationRepository(
                     }
                 } else if (result.isConflict()) {
                     try {
-                        afterConflict(envelope)
+                        afterConflictWithSession(envelope, mutationBoundary.sessionToken)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
@@ -379,12 +419,24 @@ class DefaultCollaborationRepository(
                         // The prior cache remains available for an explicit retry.
                     }
                 } else if (result.isAccessLoss()) {
-                    redactMutationCacheIfCurrent(
-                        generation = completionGeneration,
-                        groupId = affectedGroupId,
-                        inviteId = affectedInviteId,
-                        taskGroupId = taskGroupId
-                    )
+                    when (completion) {
+                        is MutationCompletion.Global -> redactMutationCacheIfCurrent(
+                            generation = completion.generation,
+                            groupId = affectedGroupId,
+                            inviteId = affectedInviteId,
+                            taskGroupId = taskGroupId
+                        )
+
+                        is MutationCompletion.Task -> {
+                            if (completion.groupId != null && completion.taskFence != null) {
+                                redactTaskCacheIfCurrent(
+                                    sessionToken = mutationBoundary.sessionToken,
+                                    groupId = completion.groupId,
+                                    taskFence = completion.taskFence
+                                )
+                            }
+                        }
+                    }
                 }
             }
             result
@@ -392,19 +444,39 @@ class DefaultCollaborationRepository(
             throw cancelled
         } catch (failure: Exception) {
             val result = networkFailure(failure)
-            val completionGeneration = finishMutationBoundary(mutationGeneration)
-            if (completionGeneration != null && result.isAccessLoss()) {
-                val taskGroupId = resolveTaskGroupIdOrNull(
+            val taskGroupId = if (cacheScope == MutationCacheScope.Task || result.isAccessLoss()) {
+                resolveTaskGroupIdOrNull(
                     taskId = affectedTaskId,
                     envelope = null,
                     knownGroupId = affectedTaskGroupId
                 )
-                redactMutationCacheIfCurrent(
-                    generation = completionGeneration,
-                    groupId = affectedGroupId,
-                    inviteId = affectedInviteId,
-                    taskGroupId = taskGroupId
-                )
+            } else {
+                null
+            }
+            val completion = finishMutationBoundary(
+                boundary = mutationBoundary,
+                scope = cacheScope,
+                resolvedTaskGroupId = taskGroupId
+            )
+            if (completion != null && result.isAccessLoss()) {
+                when (completion) {
+                    is MutationCompletion.Global -> redactMutationCacheIfCurrent(
+                        generation = completion.generation,
+                        groupId = affectedGroupId,
+                        inviteId = affectedInviteId,
+                        taskGroupId = taskGroupId
+                    )
+
+                    is MutationCompletion.Task -> {
+                        if (completion.groupId != null && completion.taskFence != null) {
+                            redactTaskCacheIfCurrent(
+                                sessionToken = mutationBoundary.sessionToken,
+                                groupId = completion.groupId,
+                                taskFence = completion.taskFence
+                            )
+                        }
+                    }
+                }
             }
             result
         }
@@ -417,16 +489,17 @@ class DefaultCollaborationRepository(
     ): CollaborationMutationResult = executeMutation(
         action = action,
         resultMapper = CollaborationRemoteMapper::toTaskMutationResult,
-        afterApplied = { envelope ->
-            resolveTaskGroupIdOrNull(affectedTaskId, envelope, affectedTaskGroupId)
-                ?.let { refreshTasks(it) }
-        },
-        afterConflict = { envelope ->
-            resolveTaskGroupIdOrNull(affectedTaskId, envelope, affectedTaskGroupId)
-                ?.let { refreshTasks(it) }
-        },
         affectedTaskGroupId = affectedTaskGroupId,
-        affectedTaskId = affectedTaskId
+        affectedTaskId = affectedTaskId,
+        afterAppliedWithSession = { envelope, sessionToken ->
+            resolveTaskGroupIdOrNull(affectedTaskId, envelope, affectedTaskGroupId)
+                ?.let { refreshTasksForMutation(it, sessionToken) }
+        },
+        afterConflictWithSession = { envelope, sessionToken ->
+            resolveTaskGroupIdOrNull(affectedTaskId, envelope, affectedTaskGroupId)
+                ?.let { refreshTasksForMutation(it, sessionToken) }
+        },
+        cacheScope = MutationCacheScope.Task
     )
 
     private suspend fun refreshGroupAndList(groupId: CollaborationGroupId) {
@@ -525,27 +598,95 @@ class DefaultCollaborationRepository(
         return CollaborationMutationResult.Failure(error)
     }
 
+    private enum class MutationCacheScope {
+        Global,
+        Task
+    }
+
+    private data class MutationBoundary(
+        val sessionToken: Long,
+        val globalGeneration: Long?,
+        val taskGroupIdAtStart: CollaborationGroupId?
+    )
+
+    private sealed interface MutationCompletion {
+        data class Global(val generation: Long) : MutationCompletion
+
+        data class Task(
+            val groupId: CollaborationGroupId?,
+            val taskFence: Long?
+        ) : MutationCompletion
+    }
+
     private suspend fun currentCacheGeneration(): Long = cacheWriteMutex.withLock { cacheGeneration }
 
-    private suspend fun beginMutationBoundary(): Long = cacheWriteMutex.withLock {
-        cacheGeneration += 1
-        cacheGeneration
+    private suspend fun currentSessionGeneration(): Long =
+        cacheWriteMutex.withLock { sessionGeneration }
+
+    private suspend fun isSessionCurrent(sessionToken: Long): Boolean =
+        cacheWriteMutex.withLock { sessionGeneration == sessionToken }
+
+    private suspend fun currentTaskCacheFence(groupId: CollaborationGroupId): Long =
+        cacheWriteMutex.withLock { taskCacheFences[groupId.value] ?: 0L }
+
+    private fun advanceTaskCacheFenceLocked(groupId: CollaborationGroupId): Long {
+        val nextFence = (taskCacheFences[groupId.value] ?: 0L) + 1L
+        taskCacheFences[groupId.value] = nextFence
+        return nextFence
+    }
+
+    private suspend fun beginMutationBoundary(
+        scope: MutationCacheScope,
+        taskGroupId: CollaborationGroupId?
+    ): MutationBoundary = cacheWriteMutex.withLock {
+        val sessionToken = sessionGeneration
+        if (scope == MutationCacheScope.Task) {
+            taskGroupId?.let { advanceTaskCacheFenceLocked(it) }
+            MutationBoundary(
+                sessionToken = sessionToken,
+                globalGeneration = null,
+                taskGroupIdAtStart = taskGroupId
+            )
+        } else {
+            cacheGeneration += 1
+            MutationBoundary(
+                sessionToken = sessionToken,
+                globalGeneration = cacheGeneration,
+                taskGroupIdAtStart = null
+            )
+        }
     }
 
     /**
-     * Closes the RPC window before any follow-up refresh starts. A session switch
-     * or newer mutation wins the generation and suppresses this mutation's cache
-     * side effects, while a refresh started during the RPC becomes stale.
+     * Closes the RPC window before any follow-up refresh starts. Global G2
+     * mutations retain their ordering fence, while G3 task mutations use a
+     * per-group fence so unrelated same-session work cannot suppress them.
      */
-    private suspend fun finishMutationBoundary(startGeneration: Long): Long? =
-        cacheWriteMutex.withLock {
+    private suspend fun finishMutationBoundary(
+        boundary: MutationBoundary,
+        scope: MutationCacheScope,
+        resolvedTaskGroupId: CollaborationGroupId?
+    ): MutationCompletion? = cacheWriteMutex.withLock {
+        if (sessionGeneration != boundary.sessionToken) {
+            return@withLock null
+        }
+
+        if (scope == MutationCacheScope.Task) {
+            val groupId = resolvedTaskGroupId ?: boundary.taskGroupIdAtStart
+            MutationCompletion.Task(
+                groupId = groupId,
+                taskFence = groupId?.let { advanceTaskCacheFenceLocked(it) }
+            )
+        } else {
+            val startGeneration = boundary.globalGeneration ?: return@withLock null
             if (cacheGeneration != startGeneration) {
                 null
             } else {
                 cacheGeneration += 1
-                cacheGeneration
+                MutationCompletion.Global(cacheGeneration)
             }
         }
+    }
 
     private suspend fun writeCacheIfCurrent(generation: Long, write: suspend () -> Unit) {
         cacheWriteMutex.withLock {
@@ -553,10 +694,27 @@ class DefaultCollaborationRepository(
         }
     }
 
+    private suspend fun writeTaskCacheIfCurrent(
+        sessionToken: Long,
+        groupId: CollaborationGroupId,
+        taskFence: Long,
+        write: suspend () -> Unit
+    ) {
+        cacheWriteMutex.withLock {
+            if (sessionGeneration == sessionToken &&
+                (taskCacheFences[groupId.value] ?: 0L) == taskFence
+            ) {
+                write()
+            }
+        }
+    }
+
     private suspend fun clearSessionCacheIfCurrent(generation: Long) {
         cacheWriteMutex.withLock {
             if (cacheGeneration == generation) {
                 cacheGeneration += 1
+                sessionGeneration += 1
+                taskCacheFences.clear()
                 cache.clearAll()
             }
         }
@@ -566,6 +724,7 @@ class DefaultCollaborationRepository(
         cacheWriteMutex.withLock {
             if (cacheGeneration == generation) {
                 cacheGeneration += 1
+                advanceTaskCacheFenceLocked(groupId)
                 cache.removeGroup(groupId.value)
                 cache.removeInvitesForGroup(groupId.value)
             }
@@ -575,15 +734,22 @@ class DefaultCollaborationRepository(
     private suspend fun evictGroup(groupId: CollaborationGroupId) {
         cacheWriteMutex.withLock {
             cacheGeneration += 1
+            advanceTaskCacheFenceLocked(groupId)
             cache.removeGroup(groupId.value)
             cache.removeInvitesForGroup(groupId.value)
         }
     }
 
-    private suspend fun evictTasksIfCurrent(generation: Long, groupId: CollaborationGroupId) {
+    private suspend fun evictTasksIfCurrent(
+        sessionToken: Long,
+        groupId: CollaborationGroupId,
+        taskFence: Long
+    ) {
         cacheWriteMutex.withLock {
-            if (cacheGeneration == generation) {
-                cacheGeneration += 1
+            if (sessionGeneration == sessionToken &&
+                (taskCacheFences[groupId.value] ?: 0L) == taskFence
+            ) {
+                advanceTaskCacheFenceLocked(groupId)
                 cache.removeTasksForGroup(groupId.value)
             }
         }
@@ -599,11 +765,31 @@ class DefaultCollaborationRepository(
             if (cacheGeneration != generation) return@withLock
             cacheGeneration += 1
             groupId?.let {
+                advanceTaskCacheFenceLocked(it)
                 cache.removeGroup(it.value)
                 cache.removeInvitesForGroup(it.value)
             }
             inviteId?.let { cache.removeInvite(it.value) }
-            taskGroupId?.let { cache.removeTasksForGroup(it.value) }
+            taskGroupId?.let {
+                advanceTaskCacheFenceLocked(it)
+                cache.removeTasksForGroup(it.value)
+            }
+        }
+    }
+
+    private suspend fun redactTaskCacheIfCurrent(
+        sessionToken: Long,
+        groupId: CollaborationGroupId,
+        taskFence: Long
+    ) {
+        cacheWriteMutex.withLock {
+            if (sessionGeneration != sessionToken ||
+                (taskCacheFences[groupId.value] ?: 0L) != taskFence
+            ) {
+                return@withLock
+            }
+            advanceTaskCacheFenceLocked(groupId)
+            cache.removeTasksForGroup(groupId.value)
         }
     }
 
