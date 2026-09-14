@@ -162,8 +162,7 @@ class GroupTasksViewModel(
 
     private fun resetForSessionBoundary() {
         cancelGroupObservations()
-        selectionResolutionJob?.cancel()
-        selectionResolutionJob = null
+        cancelSelectionResolution()
         refreshJob?.cancel()
         refreshJob = null
         mutationJob?.cancel()
@@ -200,8 +199,7 @@ class GroupTasksViewModel(
         if (pendingMutation.value != null) return
         val sameGroup = selectedGroupId.value == groupId
         advancePresentationContext()
-        selectionResolutionJob?.cancel()
-        selectionResolutionJob = null
+        cancelSelectionResolution()
         refreshJob?.cancel()
         refreshJob = null
         ++refreshGeneration
@@ -324,6 +322,7 @@ class GroupTasksViewModel(
 
     private fun refresh(groupId: CollaborationGroupId) {
         if (pendingMutation.value != null || refreshJob?.isActive == true) return
+        cancelSelectionResolution()
         invalidateRetry()
         val requestGeneration = ++refreshGeneration
         refreshCompletedGroupId = null
@@ -345,7 +344,7 @@ class GroupTasksViewModel(
                     CollaborationMutationResult.Failure(mapThrowableToDomain(throwable))
                 }
                 if (requestGeneration != refreshGeneration || selectedGroupId.value != groupId) return@launch
-                applyRefreshResult(groupId, result)
+                applyRefreshResult(groupId, result, requestGeneration)
             } finally {
                 if (requestGeneration == refreshGeneration) {
                     isRefreshing.value = false
@@ -357,7 +356,11 @@ class GroupTasksViewModel(
         }
     }
 
-    private fun applyRefreshResult(groupId: CollaborationGroupId, result: CollaborationMutationResult) {
+    private fun applyRefreshResult(
+        groupId: CollaborationGroupId,
+        result: CollaborationMutationResult,
+        requestGeneration: Long
+    ) {
         when (result) {
             CollaborationMutationResult.Applied,
             is CollaborationMutationResult.Created -> {
@@ -367,19 +370,27 @@ class GroupTasksViewModel(
                 isOffline.value = false
                 accessRestricted.value = false
                 retryRequest = null
+                val selectedId = selectedTaskId.value
+                if (selectedId != null && taskDetails.value.none { it.task.id == selectedId }) {
+                    fallbackMissingSelection(groupId)
+                }
             }
             CollaborationMutationResult.Queued -> applyLoadError(CollaborationError.InvalidState())
             CollaborationMutationResult.NetworkRequired -> applyLoadError(CollaborationError.NetworkUnavailable())
-            is CollaborationMutationResult.Failure -> applyRefreshError(groupId, result.error)
+            is CollaborationMutationResult.Failure -> applyRefreshError(groupId, result.error, requestGeneration)
             is CollaborationMutationResult.Conflict -> applyLoadError(result.error)
             is CollaborationMutationResult.NotAuthorized -> applyLoadError(result.error)
             is CollaborationMutationResult.InvalidState -> applyLoadError(result.error)
         }
     }
 
-    private fun applyRefreshError(groupId: CollaborationGroupId, domainError: CollaborationError) {
+    private fun applyRefreshError(
+        groupId: CollaborationGroupId,
+        domainError: CollaborationError,
+        requestGeneration: Long
+    ) {
         if (domainError == CollaborationError.NotFound) {
-            resolveNotFoundSelection(groupId)
+            resolveNotFoundSelection(groupId, requestGeneration)
         } else {
             applyLoadError(domainError)
         }
@@ -397,8 +408,13 @@ class GroupTasksViewModel(
         render()
     }
 
-    private fun resolveNotFoundSelection(groupId: CollaborationGroupId) {
-        selectionResolutionJob?.cancel()
+    private fun resolveNotFoundSelection(
+        groupId: CollaborationGroupId,
+        refreshRequestGeneration: Long
+    ) {
+        cancelSelectionResolution()
+        val expectedTaskId = selectedTaskId.value
+        val expectedContextGeneration = presentationContextGeneration
         selectionResolutionJob = viewModelScope.launch {
             try {
                 val groupExists = try {
@@ -408,7 +424,12 @@ class GroupTasksViewModel(
                 } catch (_: Exception) {
                     null
                 }
-                if (selectedGroupId.value != groupId) return@launch
+                if (
+                    refreshGeneration != refreshRequestGeneration ||
+                    presentationContextGeneration != expectedContextGeneration ||
+                    selectedGroupId.value != groupId ||
+                    selectedTaskId.value != expectedTaskId
+                ) return@launch
                 if (groupExists == null) {
                     clearGroupSelection()
                     error.value = GroupTasksUiError.NotFound
@@ -423,6 +444,11 @@ class GroupTasksViewModel(
                 }
             }
         }
+    }
+
+    private fun cancelSelectionResolution() {
+        selectionResolutionJob?.cancel()
+        selectionResolutionJob = null
     }
 
     private fun fallbackMissingSelection(groupId: CollaborationGroupId) {
@@ -444,6 +470,7 @@ class GroupTasksViewModel(
 
     private fun openTask(taskId: GroupTaskId) {
         val groupId = selectedGroupId.value ?: return setError(GroupTasksUiError.NotFound)
+        cancelSelectionResolution()
         advancePresentationContext()
         selectedTaskId.value = taskId
         savedStateHandle[SELECTED_TASK_ID_KEY] = taskId.value
@@ -469,6 +496,7 @@ class GroupTasksViewModel(
     }
 
     private fun backFromTask() {
+        cancelSelectionResolution()
         advancePresentationContext()
         selectedTaskId.value = null
         savedStateHandle[SELECTED_TASK_ID_KEY] = null
@@ -488,8 +516,7 @@ class GroupTasksViewModel(
 
     private fun clearGroupSelection() {
         cancelGroupObservations()
-        selectionResolutionJob?.cancel()
-        selectionResolutionJob = null
+        cancelSelectionResolution()
         refreshJob?.cancel()
         refreshJob = null
         ++refreshGeneration
@@ -554,6 +581,7 @@ class GroupTasksViewModel(
     }
 
     private fun saveEditor() {
+        invalidateRetry()
         val draft = editor.value ?: return
         val validation = validate(draft)
         if (validation.isNotEmpty()) {
@@ -1136,7 +1164,7 @@ class GroupTasksViewModel(
 
     override fun onCleared() {
         cancelGroupObservations()
-        selectionResolutionJob?.cancel()
+        cancelSelectionResolution()
         refreshJob?.cancel()
         mutationJob?.cancel()
         effectsChannel.close()

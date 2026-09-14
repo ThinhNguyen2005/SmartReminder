@@ -489,6 +489,40 @@ class GroupTasksViewModelTest {
         }
 
     @Test
+    fun `when assignee is removed after an offline create, then validation clears the stale create retry`() =
+        runTest(dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            repository.mutationResult = CollaborationMutationResult.NetworkRequired
+            viewModel.onAction(GroupTasksAction.OpenCreateTask)
+            fillCreateEditor(viewModel, "New task")
+            viewModel.onAction(GroupTasksAction.SaveTask)
+            advanceUntilIdle()
+            assertEquals(1, repository.createTaskCalls)
+            assertEquals(GroupTasksUiError.Offline, viewModel.uiState.value.error)
+
+            repository.setMembers(groupId, listOf(member(groupId, ownerId, GroupRole.OWNER)))
+            advanceUntilIdle()
+            viewModel.onAction(GroupTasksAction.SaveTask)
+
+            assertEquals(
+                GroupTaskFieldError.ASSIGNEE_NOT_MEMBER,
+                viewModel.uiState.value.editor?.errors?.get(GroupTaskField.ASSIGNEE)
+            )
+            assertEquals(
+                GroupTasksUiError.Validation(
+                    GroupTaskField.ASSIGNEE,
+                    GroupTaskFieldError.ASSIGNEE_NOT_MEMBER
+                ),
+                viewModel.uiState.value.error
+            )
+
+            viewModel.onAction(GroupTasksAction.RetryLastMutation)
+            advanceUntilIdle()
+            assertEquals(1, repository.createTaskCalls)
+        }
+
+    @Test
     fun `when account changes, then editor and pending retry state are reset`() = runTest(dispatcher) {
         val viewModel = createViewModel()
         advanceUntilIdle()
@@ -732,7 +766,7 @@ class GroupTasksViewModelTest {
     }
 
     @Test
-    fun `when restored task cache arrives late, then pre-refresh empty snapshot cannot clear selection`() = runTest(dispatcher) {
+    fun `when successful refresh sees an empty restored task snapshot before result, then resolves missing selection`() = runTest(dispatcher) {
         repository.setDetails(groupId, emptyList())
         val initialDetailsGate = CompletableDeferred<Unit>()
         val refreshCompletion = CompletableDeferred<CollaborationMutationResult>()
@@ -761,9 +795,33 @@ class GroupTasksViewModelTest {
         refreshCompletion.complete(CollaborationMutationResult.Applied)
         advanceUntilIdle()
 
-        assertEquals(taskId, viewModel.uiState.value.selectedTaskId)
-        assertEquals(GroupTasksScreen.DETAIL, viewModel.uiState.value.screen)
+        assertNull(viewModel.uiState.value.selectedTaskId)
+        assertEquals(GroupTasksScreen.LIST, viewModel.uiState.value.screen)
+        assertEquals(GroupTasksUiError.NotFound, viewModel.uiState.value.error)
     }
+
+    @Test
+    fun `when successful restored refresh leaves Room cache empty without a new emission, then resolves missing selection`() =
+        runTest(dispatcher) {
+            repository.setDetails(groupId, emptyList())
+            repository.refreshTasksResult = CollaborationMutationResult.Applied
+            val viewModel = GroupTasksViewModel(
+                repository = repository,
+                clock = Clock.fixed(fixedNow, ZoneOffset.UTC),
+                idGenerator = idGenerator,
+                savedStateHandle = SavedStateHandle(
+                    mapOf(
+                        GroupTasksViewModel.SELECTED_GROUP_ID_KEY to groupId.value,
+                        GroupTasksViewModel.SELECTED_TASK_ID_KEY to taskId.value
+                    )
+                )
+            )
+            advanceUntilIdle()
+
+            assertNull(viewModel.uiState.value.selectedTaskId)
+            assertEquals(GroupTasksScreen.LIST, viewModel.uiState.value.screen)
+            assertEquals(GroupTasksUiError.NotFound, viewModel.uiState.value.error)
+        }
 
     @Test
     fun `when restored task refresh is offline, then later cache emissions cannot clear selection`() = runTest(dispatcher) {
@@ -794,6 +852,77 @@ class GroupTasksViewModelTest {
         assertEquals(taskId, viewModel.uiState.value.selectedTaskId)
         assertEquals(GroupTasksLoadState.CACHED_OFFLINE, viewModel.uiState.value.loadState)
     }
+
+    @Test
+    fun `when not found resolution is suspended and another task is selected, then late group result cannot clear it`() =
+        runTest(dispatcher) {
+            val newTaskId = GroupTaskId("task-2")
+            val resolutionGate = CompletableDeferred<Unit>()
+            repository.observeGroupGate = resolutionGate
+            repository.refreshTasksResult = CollaborationMutationResult.Failure(CollaborationError.NotFound)
+            repository.setDetails(
+                groupId,
+                listOf(
+                    details(task(taskId = taskId)),
+                    details(task(taskId = newTaskId, title = "Task 2"))
+                )
+            )
+            val viewModel = GroupTasksViewModel(
+                repository = repository,
+                clock = Clock.fixed(fixedNow, ZoneOffset.UTC),
+                idGenerator = idGenerator,
+                savedStateHandle = SavedStateHandle(
+                    mapOf(
+                        GroupTasksViewModel.SELECTED_GROUP_ID_KEY to groupId.value,
+                        GroupTasksViewModel.SELECTED_TASK_ID_KEY to taskId.value
+                    )
+                )
+            )
+            advanceUntilIdle()
+
+            repository.setDetails(groupId, listOf(details(task(taskId = newTaskId, title = "Task 2"))))
+            advanceUntilIdle()
+            viewModel.onAction(GroupTasksAction.OpenTask(newTaskId))
+            assertEquals(newTaskId, viewModel.uiState.value.selectedTaskId)
+
+            resolutionGate.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(newTaskId, viewModel.uiState.value.selectedTaskId)
+            assertEquals("Task 2", viewModel.uiState.value.selectedTask?.task?.title)
+        }
+
+    @Test
+    fun `when newer refresh starts while not found resolution is suspended, then late result cannot clear selection`() =
+        runTest(dispatcher) {
+            val resolutionGate = CompletableDeferred<Unit>()
+            repository.observeGroupGate = resolutionGate
+            repository.refreshTasksResult = CollaborationMutationResult.Failure(CollaborationError.NotFound)
+            val viewModel = GroupTasksViewModel(
+                repository = repository,
+                clock = Clock.fixed(fixedNow, ZoneOffset.UTC),
+                idGenerator = idGenerator,
+                savedStateHandle = SavedStateHandle(
+                    mapOf(
+                        GroupTasksViewModel.SELECTED_GROUP_ID_KEY to groupId.value,
+                        GroupTasksViewModel.SELECTED_TASK_ID_KEY to taskId.value
+                    )
+                )
+            )
+            advanceUntilIdle()
+            assertEquals(1, repository.refreshTasksCalls)
+
+            repository.refreshTasksResult = CollaborationMutationResult.Applied
+            viewModel.onAction(GroupTasksAction.Refresh)
+            advanceUntilIdle()
+            assertEquals(2, repository.refreshTasksCalls)
+
+            resolutionGate.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(taskId, viewModel.uiState.value.selectedTaskId)
+            assertEquals("Task 1", viewModel.uiState.value.selectedTask?.task?.title)
+        }
 
     @Test
     fun `when refresh requests overlap, then duplicate refresh is ignored and first result wins`() = runTest(dispatcher) {
@@ -933,6 +1062,7 @@ private class FakeCollaborationRepository(
     var refreshTasksResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var refreshTasksCompletion: CompletableDeferred<CollaborationMutationResult>? = null
     var detailsInitialEmissionGate: CompletableDeferred<Unit>? = null
+    var observeGroupGate: CompletableDeferred<Unit>? = null
     var mutationResult: CollaborationMutationResult = CollaborationMutationResult.Applied
     var mutationCompletion: CompletableDeferred<CollaborationMutationResult>? = null
     var refreshTasksCalls = 0
@@ -999,8 +1129,10 @@ private class FakeCollaborationRepository(
 
     override fun observeGroups(): Flow<List<CollaborationGroup>> = groupsFlow.asStateFlow()
 
-    override fun observeGroup(groupId: CollaborationGroupId): Flow<CollaborationGroup?> =
-        groupsFlow.map { groups -> groups.firstOrNull { it.id == groupId } }
+    override fun observeGroup(groupId: CollaborationGroupId): Flow<CollaborationGroup?> = flow {
+        observeGroupGate?.await()
+        emitAll(groupsFlow.map { groups -> groups.firstOrNull { it.id == groupId } })
+    }
 
     override fun observeMembers(groupId: CollaborationGroupId): Flow<List<GroupMember>> {
         val membersFlow = memberFlows.getOrPut(groupId) { MutableStateFlow(emptyList()) }.asStateFlow()
