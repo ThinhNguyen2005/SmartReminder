@@ -162,7 +162,11 @@ class DefaultCollaborationRepository(
     }
 
     override suspend fun refreshTasks(groupId: CollaborationGroupId): CollaborationMutationResult {
-        return refreshTasks(groupId, expectedSessionToken = null)
+        return refreshTasks(
+            groupId = groupId,
+            expectedSessionToken = null,
+            allowSuccessor = true
+        )
     }
 
     /**
@@ -172,7 +176,8 @@ class DefaultCollaborationRepository(
      */
     private suspend fun refreshTasks(
         groupId: CollaborationGroupId,
-        expectedSessionToken: Long?
+        expectedSessionToken: Long?,
+        allowSuccessor: Boolean
     ): CollaborationMutationResult {
         val sessionToken = currentSessionGeneration()
         if (expectedSessionToken != null && sessionToken != expectedSessionToken) {
@@ -186,7 +191,12 @@ class DefaultCollaborationRepository(
             val remoteDetails = remote.fetchTaskDetails(groupId.value)
             val snapshot = toTaskCacheSnapshot(groupId, remoteDetails)
             val writeOutcome = try {
-                writeTaskCacheIfCurrent(sessionToken, groupId, taskFence) {
+                writeTaskCacheIfCurrent(
+                    sessionToken = sessionToken,
+                    groupId = groupId,
+                    taskFence = taskFence,
+                    allowSuccessor = allowSuccessor
+                ) {
                     cache.replaceTasks(
                         groupId = groupId.value,
                         tasks = snapshot.tasks,
@@ -199,18 +209,37 @@ class DefaultCollaborationRepository(
             if (writeOutcome.shouldReconcile &&
                 claimTaskRefreshRetry(sessionToken, groupId)
             ) {
-                refreshTasks(groupId, expectedSessionToken = sessionToken)
+                // A single invalidation wave may have one successor. The successor
+                // must not recursively schedule another attempt if it is itself
+                // invalidated or its transport/mapping fails.
+                refreshTasks(
+                    groupId = groupId,
+                    expectedSessionToken = sessionToken,
+                    allowSuccessor = false
+                )
             } else {
                 CollaborationMutationResult.Applied
             }
         } catch (cancelled: CancellationException) {
             if (refreshRegistered) {
-                discardTaskRefresh(sessionToken, groupId, taskFence)
+                // Preserve a pending reconciliation for the next caller-driven
+                // refresh. Never launch work from a cancelled caller's context.
+                discardTaskRefresh(
+                    sessionToken = sessionToken,
+                    groupId = groupId,
+                    taskFence = taskFence,
+                    allowSuccessor = false
+                )
             }
             throw cancelled
         } catch (failure: Exception) {
             val shouldReconcile = if (refreshRegistered) {
-                discardTaskRefresh(sessionToken, groupId, taskFence)
+                discardTaskRefresh(
+                    sessionToken = sessionToken,
+                    groupId = groupId,
+                    taskFence = taskFence,
+                    allowSuccessor = allowSuccessor
+                )
             } else {
                 false
             }
@@ -219,10 +248,15 @@ class DefaultCollaborationRepository(
                 evictTasksIfCurrent(sessionToken, groupId, taskFence)
             }
             if (!result.isAccessLoss() &&
+                allowSuccessor &&
                 shouldReconcile &&
                 claimTaskRefreshRetry(sessionToken, groupId)
             ) {
-                refreshTasks(groupId, expectedSessionToken = sessionToken)
+                refreshTasks(
+                    groupId = groupId,
+                    expectedSessionToken = sessionToken,
+                    allowSuccessor = false
+                )
             }
             result
         }
@@ -231,7 +265,11 @@ class DefaultCollaborationRepository(
     private suspend fun refreshTasksForMutation(
         groupId: CollaborationGroupId,
         sessionToken: Long
-    ): CollaborationMutationResult = refreshTasks(groupId, sessionToken)
+    ): CollaborationMutationResult = refreshTasks(
+        groupId = groupId,
+        expectedSessionToken = sessionToken,
+        allowSuccessor = true
+    )
 
     override suspend fun refreshInvites(): CollaborationMutationResult {
         val generation = currentCacheGeneration()
@@ -757,6 +795,10 @@ class DefaultCollaborationRepository(
         if ((taskCacheFences[groupId.value] ?: 0L) == initialTaskFence) {
             state.reconciliationSuppressed = false
         }
+        // A caller-driven refresh is also the safe recovery point for a
+        // reconciliation left pending by a cancelled refresh. Consume that
+        // wave here so a failed recovery cannot recursively retry forever.
+        state.reconcileRequired = false
         state.retryScheduled = false
         val taskFence = advanceTaskCacheFenceLocked(groupId)
         state.activeRefreshFences[taskFence] =
@@ -767,17 +809,19 @@ class DefaultCollaborationRepository(
     private suspend fun discardTaskRefresh(
         sessionToken: Long,
         groupId: CollaborationGroupId,
-        taskFence: Long
+        taskFence: Long,
+        allowSuccessor: Boolean
     ): Boolean = cacheWriteMutex.withLock {
         val state = taskRefreshStates[groupId.value]
             ?.takeIf { it.sessionToken == sessionToken }
             ?: return@withLock false
         decrementTaskRefreshLocked(state, taskFence)
         val currentFence = taskCacheFences[groupId.value] ?: 0L
-            val shouldReconcile = sessionGeneration == sessionToken &&
-                state.reconcileRequired &&
-                !state.reconciliationSuppressed &&
-                (state.activeRefreshFences[currentFence] ?: 0) == 0 &&
+        val shouldReconcile = allowSuccessor &&
+            sessionGeneration == sessionToken &&
+            state.reconcileRequired &&
+            !state.reconciliationSuppressed &&
+            (state.activeRefreshFences[currentFence] ?: 0) == 0 &&
             state.lastSuccessfulFence != currentFence &&
             !state.retryScheduled
         if (shouldReconcile) {
@@ -791,6 +835,7 @@ class DefaultCollaborationRepository(
         sessionToken: Long,
         groupId: CollaborationGroupId,
         taskFence: Long,
+        allowSuccessor: Boolean,
         write: suspend () -> Unit
     ): TaskCacheWriteOutcome = cacheWriteMutex.withLock {
         val state = taskRefreshStates[groupId.value]
@@ -804,6 +849,7 @@ class DefaultCollaborationRepository(
                 write()
                 state?.lastSuccessfulFence = taskFence
                 state?.reconcileRequired = false
+                state?.retryScheduled = false
                 TaskCacheWriteOutcome(shouldReconcile = false)
             } finally {
                 state?.let { cleanupTaskRefreshStateLocked(groupId, it) }
@@ -813,7 +859,8 @@ class DefaultCollaborationRepository(
                 ?: false
             val alreadyReconciled = state?.lastSuccessfulFence == currentFence
             val cacheSuppressed = state?.reconciliationSuppressed == true
-            val shouldReconcile = sessionIsCurrent &&
+            val shouldReconcile = allowSuccessor &&
+                sessionIsCurrent &&
                 state != null &&
                 !hasCurrentRefresh &&
                 !alreadyReconciled &&
@@ -840,7 +887,7 @@ class DefaultCollaborationRepository(
         val state = taskRefreshStates[groupId.value]
             ?.takeIf { it.sessionToken == sessionToken }
             ?: return@withLock false
-        if (!state.retryScheduled) {
+        if (!state.retryScheduled || !state.reconcileRequired) {
             return@withLock false
         }
 
@@ -848,8 +895,17 @@ class DefaultCollaborationRepository(
         val hasCurrentRefresh = state.activeRefreshFences[currentFence]?.let { it > 0 }
             ?: false
         val alreadyReconciled = state.lastSuccessfulFence == currentFence
+        val canReconcile = !state.reconciliationSuppressed &&
+            !hasCurrentRefresh &&
+            !alreadyReconciled
+        if (canReconcile) {
+            // Atomically consume the one successor permitted for this
+            // invalidation wave before starting its network call.
+            state.reconcileRequired = false
+        }
         state.retryScheduled = false
-        !state.reconciliationSuppressed && !hasCurrentRefresh && !alreadyReconciled
+        cleanupTaskRefreshStateLocked(groupId, state)
+        canReconcile
     }
 
     private fun suppressTaskReconciliationLocked(groupId: CollaborationGroupId) {
@@ -879,6 +935,7 @@ class DefaultCollaborationRepository(
         if (state.activeRefreshFences.isEmpty() &&
             !state.retryScheduled &&
             state.lastSuccessfulFence == null &&
+            !state.reconcileRequired &&
             !state.reconciliationSuppressed
         ) {
             taskRefreshStates.remove(groupId.value)
