@@ -1,15 +1,22 @@
 package com.smartreminder.ui.groups.tasks
 
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.activity.ComponentActivity
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.smartreminder.R
 import com.smartreminder.domain.model.collaboration.GroupMember
@@ -63,7 +70,9 @@ class GroupTasksScreenTest {
         }
 
         composeRule.onNodeWithText("Prepare slides").assertIsDisplayed()
-        composeRule.onNodeWithText("Lin").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_task_assignee, "Lin")
+        ).assertIsDisplayed()
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_status_todo))
             .assertIsDisplayed()
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_overdue))
@@ -139,9 +148,20 @@ class GroupTasksScreenTest {
             selectedTask = detail
         )
 
+        var renderedState by mutableStateOf(state)
         composeRule.setContent {
             SmartReminderTheme {
-                GroupTasksContent(uiState = state, onAction = { actions += it })
+                GroupTasksContent(
+                    uiState = renderedState,
+                    onAction = {
+                        actions += it
+                        if (it == GroupTasksAction.OpenCancelConfirmation) {
+                            renderedState = renderedState.copy(
+                                confirmation = GroupTaskConfirmation.Cancel(task.id)
+                            )
+                        }
+                    }
+                )
             }
         }
 
@@ -158,6 +178,299 @@ class GroupTasksScreenTest {
         assertTrue(actions.contains(GroupTasksAction.ConfirmCancel))
         assertTrue(actions.none { it == GroupTasksAction.CompleteTask })
         assertTrue(actions.none { it == GroupTasksAction.OpenReopenConfirmation })
+    }
+
+    @Test
+    fun confirmationStateRendersLocalizedCopyAndDispatchesConfirm() {
+        val actions = mutableListOf<GroupTasksAction>()
+        val task = task(status = GroupTaskStatus.TODO)
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.CONTENT,
+            detailLoadState = GroupTaskDetailLoadState.CONTENT,
+            screen = GroupTasksScreen.DETAIL,
+            selectedGroupId = groupId,
+            selectedTaskId = task.id,
+            confirmation = GroupTaskConfirmation.Cancel(task.id),
+            selectedTask = GroupTaskDetailUiModel(
+                details = GroupTaskDetails(task),
+                assignee = member(memberId, "Lin"),
+                isOverdue = false,
+                permissions = GroupTaskPermissions(canCancel = true)
+            )
+        )
+
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupTasksContent(uiState = state, onAction = { actions += it })
+            }
+        }
+
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_task_cancel_confirm_message)
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_confirm))
+            .performClick()
+
+        assertEquals(listOf(GroupTasksAction.ConfirmCancel), actions)
+    }
+
+    @Test
+    fun standaloneDetailScrollsAtTwoHundredPercentFontScale() {
+        val task = task()
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.CONTENT,
+            detailLoadState = GroupTaskDetailLoadState.CONTENT,
+            screen = GroupTasksScreen.DETAIL,
+            selectedGroupId = groupId,
+            selectedTaskId = task.id,
+            selectedTask = GroupTaskDetailUiModel(
+                details = GroupTaskDetails(task),
+                assignee = member(memberId, "Lin"),
+                isOverdue = false,
+                permissions = GroupTaskPermissions(canEdit = true)
+            )
+        )
+
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides androidx.compose.ui.unit.Density(1f, 2f)) {
+                SmartReminderTheme {
+                    GroupTasksContent(uiState = state, onAction = {}, embedded = false)
+                }
+            }
+        }
+
+        composeRule.onNode(hasScrollAction()).assertExists()
+    }
+
+    @Test
+    fun embeddedDetailDoesNotAddSecondScrollContainer() {
+        val task = task()
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.CONTENT,
+            detailLoadState = GroupTaskDetailLoadState.CONTENT,
+            screen = GroupTasksScreen.DETAIL,
+            selectedGroupId = groupId,
+            selectedTaskId = task.id,
+            selectedTask = GroupTaskDetailUiModel(
+                details = GroupTaskDetails(task),
+                assignee = member(memberId, "Lin"),
+                isOverdue = false,
+                permissions = GroupTaskPermissions(canEdit = true)
+            )
+        )
+
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupTasksContent(uiState = state, onAction = {}, embedded = true)
+            }
+        }
+
+        composeRule.onAllNodes(hasScrollAction()).assertCountEquals(0)
+    }
+
+    @Test
+    fun detailBackDispatchesBackFromTask() {
+        val actions = mutableListOf<GroupTasksAction>()
+        val task = task()
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.CONTENT,
+            detailLoadState = GroupTaskDetailLoadState.CONTENT,
+            screen = GroupTasksScreen.DETAIL,
+            selectedGroupId = groupId,
+            selectedTaskId = task.id,
+            selectedTask = GroupTaskDetailUiModel(
+                details = GroupTaskDetails(task),
+                assignee = member(memberId, "Lin"),
+                isOverdue = false,
+                permissions = GroupTaskPermissions()
+            )
+        )
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupTasksContent(uiState = state, onAction = { actions += it })
+            }
+        }
+
+        composeRule.runOnIdle {
+            composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.waitForIdle()
+
+        assertEquals(listOf(GroupTasksAction.BackFromTask), actions)
+    }
+
+    @Test
+    fun editorBackDispatchesCancelEditor() {
+        val actions = mutableListOf<GroupTasksAction>()
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.CONTENT,
+            screen = GroupTasksScreen.EDITOR,
+            selectedGroupId = groupId,
+            members = listOf(member(ownerId, "Ari")),
+            editor = GroupTaskEditorUiState(
+                mode = GroupTaskEditorMode.Create,
+                title = "Prepare slides",
+                assigneeId = ownerId,
+                dueAt = Instant.parse("2026-09-16T10:00:00Z"),
+                reminderOffsetsSeconds = listOf(900L)
+            )
+        )
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupTasksContent(uiState = state, onAction = { actions += it })
+            }
+        }
+
+        composeRule.runOnIdle {
+            composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.waitForIdle()
+
+        assertEquals(listOf(GroupTasksAction.CancelEditor), actions)
+    }
+
+    @Test
+    fun loadingDetailKeepsBackAffordanceAndDispatchesBack() {
+        val actions = mutableListOf<GroupTasksAction>()
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.LOADING,
+            detailLoadState = GroupTaskDetailLoadState.LOADING,
+            screen = GroupTasksScreen.DETAIL,
+            selectedGroupId = groupId,
+            selectedTaskId = taskId
+        )
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupTasksContent(uiState = state, onAction = { actions += it })
+            }
+        }
+
+        composeRule.onNodeWithContentDescription(
+            composeRule.activity.getString(R.string.groups_task_back_description)
+        ).assertIsDisplayed().performClick()
+
+        assertEquals(listOf(GroupTasksAction.BackFromTask), actions)
+    }
+
+    @Test
+    fun deadlineDatePickerRendersMaterialDialogCopy() {
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.CONTENT,
+            screen = GroupTasksScreen.EDITOR,
+            selectedGroupId = groupId,
+            members = listOf(member(ownerId, "Ari")),
+            editor = GroupTaskEditorUiState(
+                mode = GroupTaskEditorMode.Create,
+                assigneeId = ownerId,
+                reminderOffsetsSeconds = listOf(900L)
+            )
+        )
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupTasksContent(uiState = state, onAction = {})
+            }
+        }
+
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_task_change_deadline)
+        ).performClick()
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_task_date_picker_title)
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_task_picker_cancel)
+        ).performClick()
+    }
+
+    @Test
+    fun deadlineTimePickerRendersMaterialDialogCopy() {
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.CONTENT,
+            screen = GroupTasksScreen.EDITOR,
+            selectedGroupId = groupId,
+            members = listOf(member(ownerId, "Ari")),
+            editor = GroupTaskEditorUiState(
+                mode = GroupTaskEditorMode.Create,
+                assigneeId = ownerId,
+                dueAt = Instant.parse("2026-09-16T10:00:00Z"),
+                reminderOffsetsSeconds = listOf(900L)
+            )
+        )
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupTasksContent(uiState = state, onAction = {})
+            }
+        }
+
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_task_change_time)
+        ).performClick()
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_task_time_picker_title)
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_task_picker_cancel)
+        ).performClick()
+    }
+
+    @Test
+    fun destructiveConfirmationRendersInDarkTheme() {
+        val task = task(status = GroupTaskStatus.TODO)
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.CONTENT,
+            detailLoadState = GroupTaskDetailLoadState.CONTENT,
+            screen = GroupTasksScreen.DETAIL,
+            selectedGroupId = groupId,
+            selectedTaskId = task.id,
+            confirmation = GroupTaskConfirmation.Cancel(task.id),
+            selectedTask = GroupTaskDetailUiModel(
+                details = GroupTaskDetails(task),
+                assignee = member(memberId, "Lin"),
+                isOverdue = false,
+                permissions = GroupTaskPermissions(canCancel = true)
+            )
+        )
+        composeRule.setContent {
+            SmartReminderTheme(darkTheme = true) {
+                GroupTasksContent(uiState = state, onAction = {})
+            }
+        }
+
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_task_cancel_confirm_title)
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_confirm))
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun unauthorizedDetailActionsAreNotRendered() {
+        val task = task()
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.CONTENT,
+            detailLoadState = GroupTaskDetailLoadState.CONTENT,
+            screen = GroupTasksScreen.DETAIL,
+            selectedGroupId = groupId,
+            selectedTaskId = task.id,
+            selectedTask = GroupTaskDetailUiModel(
+                details = GroupTaskDetails(task),
+                assignee = member(memberId, "Lin"),
+                isOverdue = false,
+                permissions = GroupTaskPermissions()
+            )
+        )
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupTasksContent(uiState = state, onAction = {})
+            }
+        }
+
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_start))
+            .assertDoesNotExist()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_complete))
+            .assertDoesNotExist()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_cancel))
+            .assertDoesNotExist()
     }
 
     @Test
@@ -184,8 +497,10 @@ class GroupTasksScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("Lin").performClick()
-        composeRule.onNodeWithText("Ari").performClick()
+        composeRule.onNodeWithContentDescription(
+            composeRule.activity.getString(R.string.groups_task_assignee, "Lin")
+        ).performClick()
+        composeRule.onNodeWithText("Ari", substring = false).performClick()
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_reminder_15_minutes))
             .performClick()
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_save)).assertIsDisplayed()

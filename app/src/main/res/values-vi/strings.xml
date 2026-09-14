@@ -236,6 +236,10 @@
     <string name="groups_task_choose_assignee">Chọn thành viên</string>
     <string name="groups_task_change_deadline">Chọn ngày</string>
     <string name="groups_task_change_time">Chọn giờ</string>
+    <string name="groups_task_date_picker_title">Chọn ngày hết hạn</string>
+    <string name="groups_task_time_picker_title">Chọn giờ hết hạn</string>
+    <string name="groups_task_picker_cancel">Hủy</string>
+    <string name="groups_task_picker_done">Xong</string>
     <string name="groups_task_reminders_title">Nhắc trước hạn</string>
     <string name="groups_task_reminder_5_minutes">5 phút</string>
     <string name="groups_task_reminder_15_minutes">15 phút</string>

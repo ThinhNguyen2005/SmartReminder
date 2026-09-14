@@ -237,6 +237,10 @@
     <string name="groups_task_choose_assignee">Choose a member</string>
     <string name="groups_task_change_deadline">Choose date</string>
     <string name="groups_task_change_time">Choose time</string>
+    <string name="groups_task_date_picker_title">Choose deadline date</string>
+    <string name="groups_task_time_picker_title">Choose deadline time</string>
+    <string name="groups_task_picker_cancel">Cancel</string>
+    <string name="groups_task_picker_done">Done</string>
     <string name="groups_task_reminders_title">Reminders before deadline</string>
     <string name="groups_task_reminder_5_minutes">5 minutes</string>
     <string name="groups_task_reminder_15_minutes">15 minutes</string>

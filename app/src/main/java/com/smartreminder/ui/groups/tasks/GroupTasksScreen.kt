@@ -1,10 +1,7 @@
 package com.smartreminder.ui.groups.tasks
 
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import android.content.Context
-import android.widget.DatePicker
-import android.widget.TimePicker
+import android.text.format.DateFormat as AndroidDateFormat
 import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -16,15 +13,17 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Assignment
@@ -43,24 +42,24 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.TimePickerDefaults
+import androidx.compose.material3.TimePickerDialog
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,10 +79,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.repeatOnLifecycle
 import com.smartreminder.R
 import com.smartreminder.domain.model.collaboration.GroupMember
 import com.smartreminder.domain.model.collaboration.GroupRole
@@ -95,14 +90,13 @@ import com.smartreminder.ui.theme.CueTheme
 import com.smartreminder.ui.theme.CueSpacing
 import com.smartreminder.ui.theme.SmartReminderTheme
 import java.time.Instant
+import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
 
 /**
  * State-only task UI. It deliberately does not create a repository, ViewModel, or Scaffold so the
@@ -117,9 +111,18 @@ fun GroupTasksContent(
     embedded: Boolean = false
 ) {
     val screenDescription = stringResource(R.string.groups_tasks_title)
+    val standaloneSubflowModifier = if (!embedded && uiState.screen != GroupTasksScreen.LIST) {
+        Modifier
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+    } else {
+        Modifier
+    }
+    GroupTasksBackHandler(uiState = uiState, onAction = onAction)
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .then(standaloneSubflowModifier)
             .background(CueTheme.colors.background)
             .semantics(mergeDescendants = false) {
                 contentDescription = screenDescription
@@ -146,65 +149,6 @@ fun GroupTasksContent(
                 confirmation = confirmation,
                 pending = uiState.isMutationInProgress,
                 onAction = onAction
-            )
-        }
-    }
-}
-
-/**
- * ViewModel adapter for task screens that need effect-driven Snackbar feedback. The content
- * composable above remains reusable from Group Detail and is still the only UI state boundary.
- */
-@Composable
-fun GroupTasksRoute(
-    viewModel: GroupTasksViewModel,
-    modifier: Modifier = Modifier,
-    onEffect: (GroupTasksEffect) -> Unit = {}
-) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    LaunchedEffect(viewModel, lifecycleOwner) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            var snackbarJob: Job? = null
-            viewModel.effects.collect { effect ->
-                snackbarJob?.cancel()
-                snackbarHostState.currentSnackbarData?.dismiss()
-                snackbarJob = if (shouldShowTaskMutationSnackbar(effect)) {
-                    launch {
-                        showTaskMutationSnackbar(
-                            effect = effect,
-                            context = context,
-                            snackbarHostState = snackbarHostState,
-                            onRetry = viewModel::onAction
-                        )
-                    }
-                } else {
-                    null
-                }
-                onEffect(effect)
-            }
-        }
-    }
-
-    Box(modifier = modifier.fillMaxSize()) {
-        GroupTasksContent(
-            uiState = uiState,
-            onAction = viewModel::onAction,
-            modifier = Modifier.fillMaxSize()
-        )
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(CueSpacing.Lg)
-                .semantics { liveRegion = LiveRegionMode.Polite }
-        ) { snackbarData ->
-            Snackbar(
-                snackbarData = snackbarData,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
             )
         }
     }
@@ -644,11 +588,6 @@ private fun GroupTaskDetail(
     onAction: (GroupTasksAction) -> Unit
 ) {
     val selectedTask = uiState.selectedTask
-    if (selectedTask == null) {
-        GroupTaskDetailError(uiState = uiState, onAction = onAction)
-        return
-    }
-    val task = selectedTask.task
     val backDescription = stringResource(R.string.groups_task_back_description)
     Column(
         modifier = Modifier
@@ -667,43 +606,48 @@ private fun GroupTaskDetail(
         ) {
             Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null)
         }
-        Text(
-            text = task.title,
-            style = MaterialTheme.typography.headlineSmall,
-            color = CueTheme.colors.textPrimary
-        )
-        if (!task.description.isNullOrBlank()) {
+        if (selectedTask == null) {
+            GroupTaskDetailError(uiState = uiState, onAction = onAction)
+        } else {
+            val task = selectedTask.task
             Text(
-                text = task.description.orEmpty(),
-                style = MaterialTheme.typography.bodyLarge,
-                color = CueTheme.colors.textSecondary
+                text = task.title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = CueTheme.colors.textPrimary
             )
-        }
-        TaskDetailMetadata(selectedTask = selectedTask)
-        uiState.detailError?.let { error ->
-            val offlineBannerVisible = uiState.detailLoadState == GroupTaskDetailLoadState.CACHED_OFFLINE ||
-                uiState.detailLoadState == GroupTaskDetailLoadState.OFFLINE_REFRESHING
-            if (error != GroupTasksUiError.Offline || !offlineBannerVisible) {
-                TaskInlineError(
-                    error = error,
-                    excludeValidation = true,
-                    onRetry = { onAction(taskRetryAction(error)) }
+            if (!task.description.isNullOrBlank()) {
+                Text(
+                    text = task.description.orEmpty(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = CueTheme.colors.textSecondary
                 )
             }
-        }
-        if (uiState.detailLoadState == GroupTaskDetailLoadState.OFFLINE_REFRESHING) {
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { liveRegion = LiveRegionMode.Polite }
+            TaskDetailMetadata(selectedTask = selectedTask)
+            uiState.detailError?.let { error ->
+                val offlineBannerVisible = uiState.detailLoadState == GroupTaskDetailLoadState.CACHED_OFFLINE ||
+                    uiState.detailLoadState == GroupTaskDetailLoadState.OFFLINE_REFRESHING
+                if (error != GroupTasksUiError.Offline || !offlineBannerVisible) {
+                    TaskInlineError(
+                        error = error,
+                        excludeValidation = true,
+                        onRetry = { onAction(taskRetryAction(error)) }
+                    )
+                }
+            }
+            if (uiState.detailLoadState == GroupTaskDetailLoadState.OFFLINE_REFRESHING) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
+            GroupTaskDetailActions(
+                permissions = selectedTask.permissions,
+                members = uiState.members,
+                pending = uiState.isMutationInProgress,
+                onAction = onAction
             )
         }
-        GroupTaskDetailActions(
-            permissions = selectedTask.permissions,
-            members = uiState.members,
-            pending = uiState.isMutationInProgress,
-            onAction = onAction
-        )
     }
 }
 
@@ -729,7 +673,10 @@ private fun GroupTaskDetailError(
             Text(text = stringResource(R.string.groups_task_loading))
         } else {
             Text(text = message, color = CueTheme.colors.textSecondary)
-            Button(onClick = { onAction(taskRetryAction(uiState.detailError ?: uiState.error)) }) {
+            Button(
+                onClick = { onAction(taskRetryAction(uiState.detailError ?: uiState.error)) },
+                modifier = Modifier.heightIn(min = CueSpacing.Xxxl)
+            ) {
                 Text(text = stringResource(R.string.groups_task_retry))
             }
         }
@@ -1056,6 +1003,7 @@ private fun TaskMemberPicker(
     val selectedName = members.firstOrNull { it.userId == selectedId }
         ?.let(::memberDisplayName)
         ?: stringResource(R.string.groups_task_choose_assignee)
+    val selectedDescription = stringResource(R.string.groups_task_assignee, selectedName)
     Column(verticalArrangement = Arrangement.spacedBy(CueSpacing.Xs)) {
         Text(
             text = stringResource(R.string.groups_task_assignee_label),
@@ -1069,7 +1017,11 @@ private fun TaskMemberPicker(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = CueSpacing.Xxxl)
-                    .taskValidationSemantics(error),
+                    .taskValidationSemantics(error)
+                    .semantics {
+                        contentDescription = selectedDescription
+                        role = Role.Button
+                    },
                 contentPadding = PaddingValues(horizontal = CueSpacing.Lg, vertical = CueSpacing.Sm)
             ) {
                 Text(
@@ -1098,6 +1050,7 @@ private fun TaskMemberPicker(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TaskDeadlinePicker(
     dueAt: Instant?,
@@ -1155,49 +1108,120 @@ private fun TaskDeadlinePicker(
     }
     if (dateDialogVisible) {
         val initial = dateTime ?: ZonedDateTime.now(zone).plusDays(1)
-        DisposableEffect(dateDialogVisible, dueAt) {
-            val dialog = DatePickerDialog(
-                context,
-                { _: DatePicker, year: Int, month: Int, day: Int ->
-                    val selected = ZonedDateTime.of(
-                        year,
-                        month + 1,
-                        day,
-                        dateTime?.hour ?: 9,
-                        dateTime?.minute ?: 0,
-                        0,
-                        0,
-                        zone
-                    )
-                    onDeadlineChanged(selected.toInstant())
-                    dateDialogVisible = false
+        val initialDateMillis = initial.toLocalDate()
+            .atStartOfDay(ZoneOffset.UTC)
+            .toInstant()
+            .toEpochMilli()
+        val datePickerState = androidx.compose.material3.rememberDatePickerState(
+            initialSelectedDateMillis = initialDateMillis
+        )
+        val datePickerColors = DatePickerDefaults.colors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            headlineContentColor = MaterialTheme.colorScheme.onSurface,
+            weekdayContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            navigationContentColor = MaterialTheme.colorScheme.onSurface,
+            dayContentColor = MaterialTheme.colorScheme.onSurface,
+            selectedDayContainerColor = MaterialTheme.colorScheme.primary,
+            selectedDayContentColor = MaterialTheme.colorScheme.onPrimary,
+            todayContentColor = MaterialTheme.colorScheme.primary,
+            todayDateBorderColor = MaterialTheme.colorScheme.primary,
+            dividerColor = MaterialTheme.colorScheme.outlineVariant
+        )
+        DatePickerDialog(
+            onDismissRequest = { dateDialogVisible = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { selectedDateMillis ->
+                            val selectedDate = Instant.ofEpochMilli(selectedDateMillis)
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDate()
+                            val selected = ZonedDateTime.of(
+                                selectedDate,
+                                LocalTime.of(dateTime?.hour ?: 9, dateTime?.minute ?: 0),
+                                zone
+                            )
+                            onDeadlineChanged(selected.toInstant())
+                        }
+                        dateDialogVisible = false
+                    },
+                    enabled = datePickerState.selectedDateMillis != null,
+                    modifier = Modifier.heightIn(min = CueSpacing.Xxxl)
+                ) {
+                    Text(text = stringResource(R.string.groups_task_picker_done))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { dateDialogVisible = false },
+                    modifier = Modifier.heightIn(min = CueSpacing.Xxxl)
+                ) {
+                    Text(text = stringResource(R.string.groups_task_picker_cancel))
+                }
+            },
+            colors = datePickerColors
+        ) {
+            DatePicker(
+                state = datePickerState,
+                title = {
+                    Text(text = stringResource(R.string.groups_task_date_picker_title))
                 },
-                initial.year,
-                initial.monthValue - 1,
-                initial.dayOfMonth
+                colors = datePickerColors
             )
-            dialog.setOnDismissListener { dateDialogVisible = false }
-            dialog.show()
-            onDispose { dialog.dismiss() }
         }
     }
     if (timeDialogVisible && dueAt != null) {
         val initial = dateTime ?: dueAt.atZone(zone)
-        DisposableEffect(timeDialogVisible, dueAt) {
-            val dialog = TimePickerDialog(
-                context,
-                { _: TimePicker, hour: Int, minute: Int ->
-                    val selected = initial.withHour(hour).withMinute(minute).withSecond(0).withNano(0)
-                    onDeadlineChanged(selected.toInstant())
-                    timeDialogVisible = false
-                },
-                initial.hour,
-                initial.minute,
-                true
+        val timePickerState = androidx.compose.material3.rememberTimePickerState(
+            initialHour = initial.hour,
+            initialMinute = initial.minute,
+            is24Hour = AndroidDateFormat.is24HourFormat(context)
+        )
+        TimePickerDialog(
+            onDismissRequest = { timeDialogVisible = false },
+            title = {
+                Text(text = stringResource(R.string.groups_task_time_picker_title))
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val selected = initial.withHour(timePickerState.hour)
+                            .withMinute(timePickerState.minute)
+                            .withSecond(0)
+                            .withNano(0)
+                        onDeadlineChanged(selected.toInstant())
+                        timeDialogVisible = false
+                    },
+                    modifier = Modifier.heightIn(min = CueSpacing.Xxxl)
+                ) {
+                    Text(text = stringResource(R.string.groups_task_picker_done))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { timeDialogVisible = false },
+                    modifier = Modifier.heightIn(min = CueSpacing.Xxxl)
+                ) {
+                    Text(text = stringResource(R.string.groups_task_picker_cancel))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            TimePicker(
+                state = timePickerState,
+                colors = TimePickerDefaults.colors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    clockDialColor = MaterialTheme.colorScheme.surfaceVariant,
+                    clockDialSelectedContentColor = MaterialTheme.colorScheme.onPrimary,
+                    clockDialUnselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    selectorColor = MaterialTheme.colorScheme.primary,
+                    periodSelectorSelectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    periodSelectorSelectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    timeSelectorSelectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    timeSelectorSelectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             )
-            dialog.setOnDismissListener { timeDialogVisible = false }
-            dialog.show()
-            onDispose { dialog.dismiss() }
         }
     }
 }
@@ -1391,8 +1415,8 @@ private fun GroupTaskConfirmationDialog(
                 modifier = Modifier.heightIn(min = CueSpacing.Xxxl),
                 colors = if (isCancel) {
                     ButtonDefaults.buttonColors(
-                        containerColor = CueTheme.colors.error,
-                        contentColor = CueTheme.colors.onCta
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
                     )
                 } else {
                     ButtonDefaults.buttonColors()
@@ -1487,51 +1511,6 @@ private fun taskFieldErrorStringRes(reason: GroupTaskFieldError): Int = when (re
 @Composable
 private fun taskFieldErrorMessage(reason: GroupTaskFieldError): String =
     stringResource(taskFieldErrorStringRes(reason))
-
-internal fun shouldShowTaskMutationSnackbar(effect: GroupTasksEffect): Boolean = when (effect) {
-    is GroupTasksEffect.MutationCompleted -> true
-    is GroupTasksEffect.MutationFailed -> effect.showSnackbar
-    else -> false
-}
-
-@StringRes
-private fun mutationSuccessStringRes(mutation: GroupTasksMutation): Int = when (mutation) {
-    GroupTasksMutation.CREATE -> R.string.groups_task_success_create
-    GroupTasksMutation.EDIT -> R.string.groups_task_success_edit
-    GroupTasksMutation.REASSIGN -> R.string.groups_task_success_reassign
-    GroupTasksMutation.START -> R.string.groups_task_success_start
-    GroupTasksMutation.COMPLETE -> R.string.groups_task_success_complete
-    GroupTasksMutation.CANCEL -> R.string.groups_task_success_cancel
-    GroupTasksMutation.REOPEN -> R.string.groups_task_success_reopen
-}
-
-private suspend fun showTaskMutationSnackbar(
-    effect: GroupTasksEffect,
-    context: Context,
-    snackbarHostState: SnackbarHostState,
-    onRetry: (GroupTasksAction) -> Unit
-) {
-    val result = when (effect) {
-        is GroupTasksEffect.MutationCompleted -> snackbarHostState.showSnackbar(
-            message = context.getString(mutationSuccessStringRes(effect.mutation)),
-            withDismissAction = true,
-            duration = SnackbarDuration.Short
-        )
-        is GroupTasksEffect.MutationFailed -> snackbarHostState.showSnackbar(
-            message = context.getString(
-                R.string.groups_task_snackbar_failure,
-                context.getString(taskErrorStringRes(effect.error))
-            ),
-            actionLabel = effect.retryAction?.let { context.getString(R.string.groups_task_retry) },
-            withDismissAction = true,
-            duration = if (effect.retryAction == null) SnackbarDuration.Long else SnackbarDuration.Indefinite
-        )
-        else -> return
-    }
-    if (result == SnackbarResult.ActionPerformed) {
-        (effect as? GroupTasksEffect.MutationFailed)?.retryAction?.let(onRetry)
-    }
-}
 
 @Preview(showBackground = true)
 @Composable
