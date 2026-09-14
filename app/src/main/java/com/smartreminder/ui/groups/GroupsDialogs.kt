@@ -200,7 +200,9 @@ private fun GroupEditorDialog(
                         onInputChanged()
                         name = it
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .groupsValidationSemantics(nameError),
                     label = { Text(text = stringResource(R.string.groups_group_name)) },
                     singleLine = false,
                     enabled = !pending,
@@ -210,7 +212,6 @@ private fun GroupEditorDialog(
                             Text(
                                 text = message,
                                 modifier = Modifier.semantics {
-                                    error(message)
                                     liveRegion = LiveRegionMode.Polite
                                 }
                             )
@@ -297,7 +298,9 @@ private fun InviteMemberDialog(
                         onInputChanged()
                         email = it
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .groupsValidationSemantics(emailError),
                     label = { Text(text = stringResource(R.string.groups_invite_email)) },
                     singleLine = false,
                     enabled = !pending,
@@ -307,7 +310,6 @@ private fun InviteMemberDialog(
                             Text(
                                 text = message,
                                 modifier = Modifier.semantics {
-                                    error(message)
                                     liveRegion = LiveRegionMode.Polite
                                 }
                             )
@@ -638,6 +640,16 @@ private fun DialogError(uiError: GroupsUiError?) {
                 liveRegion = LiveRegionMode.Polite
             }
     )
+}
+
+/** Keep the typed field diagnostic on the merged text-field node for TalkBack. */
+private fun Modifier.groupsValidationSemantics(message: String?): Modifier = if (message == null) {
+    this
+} else {
+    semantics(mergeDescendants = true) {
+        error(message)
+        liveRegion = LiveRegionMode.Polite
+    }
 }
 
 private fun memberFor(uiState: GroupsUiState, memberId: UserId): GroupMember? =

@@ -119,7 +119,7 @@ class GroupsScreenTest {
     }
 
     @Test
-    fun detailHidesUnauthorizedMembershipActionsAndShowsG3Lock() {
+    fun detailHidesUnauthorizedMembershipActionsAndShowsTaskSection() {
         val group = group("group-1", "Household")
         val actor = member(group.id.value, "member-1", GroupRole.MEMBER)
         val state = GroupsUiState(
@@ -164,7 +164,8 @@ class GroupsScreenTest {
             }
         }
 
-        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_tasks_coming_g3)).assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_tasks_title)).assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_tasks_empty_title)).assertIsDisplayed()
         assertEquals(
             0,
             composeRule.onAllNodesWithText(composeRule.activity.getString(R.string.groups_invite_member))
@@ -447,7 +448,8 @@ class GroupsScreenTest {
         }
 
         val expectedMessage = composeRule.activity.getString(R.string.groups_error_group_name_required)
-        val errorNode = composeRule.onNodeWithText(expectedMessage).assertIsDisplayed()
+        val errorNode = composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_group_name))
+            .assertIsDisplayed()
             .fetchSemanticsNode()
         assertEquals(expectedMessage, errorNode.config[SemanticsProperties.Error])
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_group_name))
@@ -478,7 +480,8 @@ class GroupsScreenTest {
         }
 
         val expectedMessage = viContext.getString(R.string.groups_error_group_name_required)
-        val errorNode = composeRule.onNodeWithText(expectedMessage).assertIsDisplayed()
+        val errorNode = composeRule.onNodeWithText(viContext.getString(R.string.groups_group_name))
+            .assertIsDisplayed()
             .fetchSemanticsNode()
         assertEquals(expectedMessage, errorNode.config[SemanticsProperties.Error])
     }
@@ -509,6 +512,10 @@ class GroupsScreenTest {
         }
 
         val expectedMessage = viContext.getString(R.string.groups_error_email_invalid)
+        val emailField = composeRule.onNodeWithText(viContext.getString(R.string.groups_invite_email))
+            .assertIsDisplayed()
+            .fetchSemanticsNode()
+        assertEquals(expectedMessage, emailField.config[SemanticsProperties.Error])
         composeRule.onNodeWithText(expectedMessage).assertIsDisplayed()
         composeRule.onAllNodesWithText("server says invite email is invalid").assertCountEquals(0)
     }

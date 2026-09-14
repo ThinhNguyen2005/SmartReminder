@@ -27,7 +27,6 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.automirrored.outlined.ExitToApp
 import androidx.compose.material.icons.outlined.Group
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Refresh
@@ -76,6 +75,9 @@ import com.smartreminder.domain.model.collaboration.ids.UserId
 import com.smartreminder.ui.theme.CueTheme
 import com.smartreminder.ui.theme.CueSpacing
 import com.smartreminder.ui.theme.SmartReminderTheme
+import com.smartreminder.ui.groups.tasks.GroupTasksAction
+import com.smartreminder.ui.groups.tasks.GroupTasksContent
+import com.smartreminder.ui.groups.tasks.GroupTasksUiState
 import java.time.Instant
 
 @Composable
@@ -566,7 +568,9 @@ private fun GroupsStatusBanner(
 fun GroupDetailScreen(
     uiState: GroupsUiState,
     onAction: (GroupsAction) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    taskUiState: GroupTasksUiState = GroupTasksUiState(),
+    onTaskAction: (GroupTasksAction) -> Unit = {}
 ) {
     val selectedDetail = uiState.selectedGroup
     if (selectedDetail == null) {
@@ -698,8 +702,13 @@ fun GroupDetailScreen(
                     onAction = onAction
                 )
             }
-            item(key = "group_tasks_locked") {
-                GroupTaskLockedSection()
+            item(key = "group_tasks") {
+                GroupTasksContent(
+                    uiState = taskUiState,
+                    onAction = onTaskAction,
+                    modifier = Modifier.fillMaxWidth(),
+                    embedded = true
+                )
             }
         }
     }
@@ -970,53 +979,6 @@ private fun initialsFor(name: String): String = name
     .mapNotNull { it.firstOrNull()?.uppercaseChar() }
     .joinToString("")
     .ifBlank { "?" }
-
-@Composable
-fun GroupTaskLockedSection(modifier: Modifier = Modifier) {
-    val lockedDescription = stringResource(R.string.groups_tasks_locked_description)
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics(mergeDescendants = true) {
-                contentDescription = lockedDescription
-            },
-        shape = RoundedCornerShape(CueSpacing.Lg),
-        color = CueTheme.colors.surfaceSubtle,
-        border = BorderStroke(1.dp, CueTheme.colors.border)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(CueSpacing.Lg),
-            horizontalArrangement = Arrangement.spacedBy(CueSpacing.Md),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Lock,
-                contentDescription = null,
-                tint = CueTheme.colors.textSecondary,
-                modifier = Modifier.size(CueSpacing.Xl)
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.groups_tasks_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = CueTheme.colors.textPrimary
-                )
-                Text(
-                    text = stringResource(R.string.groups_tasks_coming_g3),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = CueTheme.colors.accentStrong
-                )
-                Text(
-                    text = stringResource(R.string.groups_tasks_locked_description),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = CueTheme.colors.textSecondary
-                )
-            }
-        }
-    }
-}
 
 @androidx.annotation.StringRes
 internal fun groupsErrorStringRes(error: GroupsUiError?): Int = when (error) {
