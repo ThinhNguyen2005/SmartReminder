@@ -123,7 +123,7 @@ private fun mutationSuccessStringRes(mutation: GroupTasksMutation): Int = when (
     GroupTasksMutation.REOPEN -> R.string.groups_task_success_reopen
 }
 
-private suspend fun showTaskMutationSnackbar(
+internal suspend fun showTaskMutationSnackbar(
     effect: GroupTasksEffect,
     context: Context,
     snackbarHostState: SnackbarHostState,

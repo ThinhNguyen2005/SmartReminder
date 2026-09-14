@@ -17,5 +17,6 @@ class AppContainerConfigurationTest {
 
         assertNotNull(container.userPreferencesCloudRepository)
         assertNotNull(container.userPreferencesSyncCoordinator)
+        assertNotNull(container.groupTasksViewModelFactory)
     }
 }

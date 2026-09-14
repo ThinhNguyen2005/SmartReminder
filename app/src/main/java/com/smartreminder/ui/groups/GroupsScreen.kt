@@ -569,8 +569,8 @@ fun GroupDetailScreen(
     uiState: GroupsUiState,
     onAction: (GroupsAction) -> Unit,
     modifier: Modifier = Modifier,
-    taskUiState: GroupTasksUiState = GroupTasksUiState(),
-    onTaskAction: (GroupTasksAction) -> Unit = {}
+    taskUiState: GroupTasksUiState,
+    onTaskAction: (GroupTasksAction) -> Unit
 ) {
     val selectedDetail = uiState.selectedGroup
     if (selectedDetail == null) {
@@ -1071,7 +1071,9 @@ private fun GroupDetailScreenPreview() {
                     )
                 )
             ),
-            onAction = {}
+            onAction = {},
+            taskUiState = GroupTasksUiState(),
+            onTaskAction = {}
         )
     }
 }

@@ -1,7 +1,13 @@
 package com.smartreminder.ui.groups
 
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
+import com.smartreminder.ui.groups.tasks.GroupTasksAction
+import com.smartreminder.ui.groups.tasks.GroupTasksLoadState
+import com.smartreminder.ui.groups.tasks.GroupTasksScreen
+import com.smartreminder.ui.groups.tasks.GroupTasksUiState
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -32,6 +38,63 @@ class GroupsRouteTest {
         assertFalse(
             shouldShowMutationSnackbar(
                 GroupsEffect.NavigateToDetail(CollaborationGroupId("group-1"))
+            )
+        )
+    }
+
+    @Test
+    fun `group selection opens task stream only when task vm is on another group`() {
+        val groupId = CollaborationGroupId("group-1")
+
+        assertEquals(
+            GroupTasksAction.OpenGroup(groupId),
+            groupTasksSynchronizationAction(
+                groupsState = GroupsUiState(
+                    loadState = GroupsLoadState.CONTENT,
+                    selectedGroupId = groupId
+                ),
+                tasksState = GroupTasksUiState(
+                    selectedGroupId = CollaborationGroupId("group-2")
+                )
+            )
+        )
+        assertNull(
+            groupTasksSynchronizationAction(
+                groupsState = GroupsUiState(
+                    loadState = GroupsLoadState.CONTENT,
+                    selectedGroupId = groupId
+                ),
+                tasksState = GroupTasksUiState(selectedGroupId = groupId)
+            )
+        )
+    }
+
+    @Test
+    fun `restored task selection is held while groups are still restoring`() {
+        assertNull(
+            groupTasksSynchronizationAction(
+                groupsState = GroupsUiState(isRefreshing = true),
+                tasksState = GroupTasksUiState(
+                    loadState = GroupTasksLoadState.CONTENT,
+                    screen = GroupTasksScreen.DETAIL,
+                    selectedGroupId = CollaborationGroupId("restored-group")
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `task selection is cleared after groups settle on list`() {
+        assertEquals(
+            GroupTasksAction.BackToGroups,
+            groupTasksSynchronizationAction(
+                groupsState = GroupsUiState(
+                    loadState = GroupsLoadState.EMPTY,
+                    isRefreshing = false
+                ),
+                tasksState = GroupTasksUiState(
+                    selectedGroupId = CollaborationGroupId("stale-group")
+                )
             )
         )
     }

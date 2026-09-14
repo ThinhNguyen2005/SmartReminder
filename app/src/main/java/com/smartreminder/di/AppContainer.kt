@@ -24,6 +24,9 @@ import com.smartreminder.domain.repository.UserPreferencesCloudRepository
 import com.smartreminder.domain.repository.UserPreferencesRepository
 import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
 import com.smartreminder.ui.groups.GroupsViewModelFactory
+import com.smartreminder.ui.groups.tasks.GroupTasksViewModelFactory
+import com.smartreminder.ui.groups.tasks.UuidGroupTaskIdGenerator
+import java.time.Clock
 import kotlinx.coroutines.flow.map
 
 /**
@@ -76,6 +79,14 @@ class AppContainer(private val context: Context) {
 
     val groupsViewModelFactory: GroupsViewModelFactory by lazy {
         GroupsViewModelFactory(collaborationRepository)
+    }
+
+    val groupTasksViewModelFactory: GroupTasksViewModelFactory by lazy {
+        GroupTasksViewModelFactory(
+            repository = collaborationRepository,
+            clock = Clock.systemUTC(),
+            idGenerator = UuidGroupTaskIdGenerator
+        )
     }
 
     private fun hasValidatedNetwork(): Boolean {

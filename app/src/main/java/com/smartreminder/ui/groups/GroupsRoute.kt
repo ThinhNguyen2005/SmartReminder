@@ -26,9 +26,20 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.smartreminder.R
+import com.smartreminder.ui.groups.tasks.GroupTasksAction
+import com.smartreminder.ui.groups.tasks.GroupTasksEffect
+import com.smartreminder.ui.groups.tasks.GroupTasksScreen
+import com.smartreminder.ui.groups.tasks.GroupTasksUiState
+import com.smartreminder.ui.groups.tasks.GroupTasksViewModel
+import com.smartreminder.ui.groups.tasks.showTaskMutationSnackbar
+import com.smartreminder.ui.groups.tasks.shouldShowTaskMutationSnackbar
 import com.smartreminder.ui.theme.CueSpacing
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 
 /**
@@ -38,40 +49,88 @@ import kotlinx.coroutines.launch
 @Composable
 fun GroupsRoute(
     viewModel: GroupsViewModel,
+    groupTasksViewModel: GroupTasksViewModel,
     modifier: Modifier = Modifier,
     onEffect: (GroupsEffect) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val taskUiState by groupTasksViewModel.uiState.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(viewModel, lifecycleOwner) {
+    LaunchedEffect(viewModel, groupTasksViewModel, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             var snackbarJob: Job? = null
-            viewModel.effects.collect { effect ->
-                if (effect is GroupsEffect.MutationCompleted || effect is GroupsEffect.MutationFailed) {
-                    snackbarJob?.cancel()
-                    snackbarHostState.currentSnackbarData?.dismiss()
-                    snackbarJob = if (shouldShowMutationSnackbar(effect)) {
-                        launch {
-                            showMutationSnackbar(
-                                effect = effect,
-                                context = context,
-                                snackbarHostState = snackbarHostState,
-                                onRetry = viewModel::onAction
-                            )
+            merge(
+                viewModel.effects.map { GroupsRouteEffect.Group(it) },
+                groupTasksViewModel.effects.map { GroupsRouteEffect.Task(it) }
+            ).collect { event ->
+                when (event) {
+                    is GroupsRouteEffect.Group -> {
+                        val effect = event.effect
+                        if (effect is GroupsEffect.MutationCompleted ||
+                            effect is GroupsEffect.MutationFailed
+                        ) {
+                            snackbarJob?.cancel()
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            snackbarJob = if (shouldShowMutationSnackbar(effect)) {
+                                launch {
+                                    showMutationSnackbar(
+                                        effect = effect,
+                                        context = context,
+                                        snackbarHostState = snackbarHostState,
+                                        onRetry = viewModel::onAction
+                                    )
+                                }
+                            } else {
+                                null
+                            }
                         }
-                    } else {
-                        null
+                        if (effect is GroupsEffect.NavigateToList) {
+                            groupTasksViewModel.onAction(GroupTasksAction.BackToGroups)
+                        }
+                        onEffect(effect)
+                    }
+                    is GroupsRouteEffect.Task -> {
+                        val effect = event.effect
+                        if (effect is GroupTasksEffect.NavigateBack) {
+                            viewModel.onAction(GroupsAction.Back)
+                        }
+                        if (shouldShowTaskMutationSnackbar(effect)) {
+                            snackbarJob?.cancel()
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            snackbarJob = launch {
+                                showTaskMutationSnackbar(
+                                    effect = effect,
+                                    context = context,
+                                    snackbarHostState = snackbarHostState,
+                                    onRetry = groupTasksViewModel::onAction
+                                )
+                            }
+                        }
                     }
                 }
-                onEffect(effect)
             }
         }
     }
 
-    BackHandler(enabled = uiState.screen == GroupsScreen.DETAIL) {
+    LaunchedEffect(viewModel, groupTasksViewModel, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            combine(
+                viewModel.uiState,
+                groupTasksViewModel.uiState,
+                ::groupTasksSynchronizationAction
+            ).distinctUntilChanged().collect { action ->
+                action?.let(groupTasksViewModel::onAction)
+            }
+        }
+    }
+
+    BackHandler(
+        enabled = uiState.screen == GroupsScreen.DETAIL &&
+            taskUiState.screen == GroupTasksScreen.LIST
+    ) {
         viewModel.onAction(GroupsAction.Back)
     }
 
@@ -85,6 +144,8 @@ fun GroupsRoute(
             GroupsScreen.DETAIL -> GroupDetailScreen(
                 uiState = uiState,
                 onAction = viewModel::onAction,
+                taskUiState = taskUiState,
+                onTaskAction = groupTasksViewModel::onAction,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -112,6 +173,27 @@ fun GroupsRoute(
             onAction = viewModel::onAction
         )
     }
+}
+
+private sealed interface GroupsRouteEffect {
+    data class Group(val effect: GroupsEffect) : GroupsRouteEffect
+    data class Task(val effect: GroupTasksEffect) : GroupsRouteEffect
+}
+
+internal fun groupTasksSynchronizationAction(
+    groupsState: GroupsUiState,
+    tasksState: GroupTasksUiState
+): GroupTasksAction? {
+    val groupId = groupsState.selectedGroupId
+    if (groupId == null) {
+        return if (!groupsState.isRefreshing && tasksState.selectedGroupId != null) {
+            GroupTasksAction.BackToGroups
+        } else {
+            null
+        }
+    }
+    return GroupTasksAction.OpenGroup(groupId)
+        .takeIf { tasksState.selectedGroupId != groupId }
 }
 
 internal fun shouldShowMutationSnackbar(effect: GroupsEffect): Boolean = when (effect) {

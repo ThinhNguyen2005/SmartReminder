@@ -52,6 +52,7 @@ import com.smartreminder.ui.schedules.editor.UuidRoutineEditorIdGenerator
 import com.smartreminder.ui.calendar.CalendarPlaceholderScreen
 import com.smartreminder.ui.groups.GroupsRoute
 import com.smartreminder.ui.groups.GroupsViewModel
+import com.smartreminder.ui.groups.tasks.GroupTasksViewModel
 import com.smartreminder.ui.theme.SmartReminderTheme
 import com.smartreminder.ui.today.TodayPlaceholderScreen
 import java.time.Clock
@@ -138,6 +139,9 @@ class MainActivity : ComponentActivity() {
                             val groupsViewModel: GroupsViewModel = viewModel(
                                 factory = appContainer.groupsViewModelFactory
                             )
+                            val groupTasksViewModel: GroupTasksViewModel = viewModel(
+                                factory = appContainer.groupTasksViewModelFactory
+                            )
                             val profileViewModelFactory = ProfileViewModelFactory(
                                 repository = appContainer.userPreferencesRepository,
                                 syncCoordinator = appContainer.userPreferencesSyncCoordinator
@@ -147,6 +151,7 @@ class MainActivity : ComponentActivity() {
                                 scheduleGroupRepository = appContainer.scheduleGroupRepository,
                                 routineRepository = appContainer.routineRepository,
                                 groupsViewModel = groupsViewModel,
+                                groupTasksViewModel = groupTasksViewModel,
                                 profileViewModelFactory = profileViewModelFactory
                             )
                         }
@@ -163,6 +168,7 @@ fun SmartReminderApp(
     scheduleGroupRepository: ScheduleGroupRepository,
     routineRepository: RoutineRepository,
     groupsViewModel: GroupsViewModel,
+    groupTasksViewModel: GroupTasksViewModel,
     profileViewModelFactory: ProfileViewModelFactory
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.TODAY) }
@@ -208,6 +214,7 @@ fun SmartReminderApp(
                     AppDestination.GROUPS -> {
                         GroupsRoute(
                             viewModel = groupsViewModel,
+                            groupTasksViewModel = groupTasksViewModel,
                             modifier = Modifier.padding(innerPadding)
                         )
                     }

@@ -28,9 +28,17 @@ import com.smartreminder.domain.model.collaboration.GroupInvite
 import com.smartreminder.domain.model.collaboration.GroupInviteStatus
 import com.smartreminder.domain.model.collaboration.GroupMember
 import com.smartreminder.domain.model.collaboration.GroupRole
+import com.smartreminder.domain.model.collaboration.GroupTask
+import com.smartreminder.domain.model.collaboration.GroupTaskStatus
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
 import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
+import com.smartreminder.domain.model.collaboration.ids.GroupTaskId
 import com.smartreminder.domain.model.collaboration.ids.UserId
+import com.smartreminder.ui.groups.tasks.GroupTaskListItemUiModel
+import com.smartreminder.ui.groups.tasks.GroupTaskPermissions
+import com.smartreminder.ui.groups.tasks.GroupTasksAction
+import com.smartreminder.ui.groups.tasks.GroupTasksLoadState
+import com.smartreminder.ui.groups.tasks.GroupTasksUiState
 import com.smartreminder.ui.theme.SmartReminderTheme
 import java.time.Instant
 import java.util.Locale
@@ -160,7 +168,12 @@ class GroupsScreenTest {
 
         composeRule.setContent {
             SmartReminderTheme {
-                GroupDetailScreen(uiState = state, onAction = {})
+                GroupDetailScreen(
+                    uiState = state,
+                    onAction = {},
+                    taskUiState = GroupTasksUiState(),
+                    onTaskAction = {}
+                )
             }
         }
 
@@ -176,6 +189,54 @@ class GroupsScreenTest {
             composeRule.onAllNodesWithText(composeRule.activity.getString(R.string.groups_manage_group))
                 .fetchSemanticsNodes().size
         )
+    }
+
+    @Test
+    fun detailEmbedsSuppliedTaskStateAndForwardsTaskActions() {
+        val group = group("group-1", "Household")
+        val assignee = member(group.id.value, "member-1", GroupRole.MEMBER)
+        val task = GroupTask(
+            id = GroupTaskId("task-1"),
+            groupId = group.id,
+            title = "Prepare slides",
+            createdBy = assignee.userId,
+            assigneeId = assignee.userId,
+            dueAt = Instant.parse("2026-09-16T10:00:00Z"),
+            status = GroupTaskStatus.TODO,
+            version = 1L,
+            createdAt = Instant.parse("2026-09-15T09:00:00Z"),
+            updatedAt = Instant.parse("2026-09-15T09:00:00Z")
+        )
+        val taskActions = mutableListOf<GroupTasksAction>()
+
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupDetailScreen(
+                    uiState = detailState(group, listOf(assignee)),
+                    onAction = {},
+                    taskUiState = GroupTasksUiState(
+                        loadState = GroupTasksLoadState.CONTENT,
+                        selectedGroupId = group.id,
+                        members = listOf(assignee),
+                        tasks = listOf(
+                            GroupTaskListItemUiModel(
+                                task = task,
+                                assignee = assignee,
+                                isOverdue = false,
+                                permissions = GroupTaskPermissions()
+                            )
+                        )
+                    ),
+                    onTaskAction = { taskActions += it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription(
+            composeRule.activity.getString(R.string.groups_task_open_description, task.title)
+        ).performClick()
+
+        assertEquals(listOf(GroupTasksAction.OpenTask(task.id)), taskActions)
     }
 
     @Test
@@ -270,7 +331,12 @@ class GroupsScreenTest {
 
         composeRule.setContent {
             SmartReminderTheme {
-                GroupDetailScreen(uiState = state, onAction = { actions += it })
+                GroupDetailScreen(
+                    uiState = state,
+                    onAction = { actions += it },
+                    taskUiState = GroupTasksUiState(),
+                    onTaskAction = {}
+                )
             }
         }
 
@@ -551,7 +617,9 @@ class GroupsScreenTest {
             SmartReminderTheme {
                 GroupDetailScreen(
                     uiState = detailState(group, listOf(actor, target)),
-                    onAction = { actions += it }
+                    onAction = { actions += it },
+                    taskUiState = GroupTasksUiState(),
+                    onTaskAction = {}
                 )
             }
         }
@@ -584,7 +652,12 @@ class GroupsScreenTest {
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
                 SmartReminderTheme(darkTheme = darkTheme.value) {
-                    GroupDetailScreen(uiState = state, onAction = {})
+                    GroupDetailScreen(
+                        uiState = state,
+                        onAction = {},
+                        taskUiState = GroupTasksUiState(),
+                        onTaskAction = {}
+                    )
                 }
             }
         }
@@ -605,7 +678,9 @@ class GroupsScreenTest {
             SmartReminderTheme {
                 GroupDetailScreen(
                     uiState = detailState(group, listOf(member(group.id.value, "owner-1", GroupRole.OWNER))),
-                    onAction = { actions += it }
+                    onAction = { actions += it },
+                    taskUiState = GroupTasksUiState(),
+                    onTaskAction = {}
                 )
             }
         }
