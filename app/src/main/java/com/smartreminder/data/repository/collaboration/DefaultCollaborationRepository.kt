@@ -40,12 +40,14 @@ import com.smartreminder.domain.repository.StartGroupTaskCommand
 import com.smartreminder.domain.repository.TransferOwnershipCommand
 import com.smartreminder.domain.repository.UpdateGroupCommand
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -223,13 +225,16 @@ class DefaultCollaborationRepository(
         } catch (cancelled: CancellationException) {
             if (refreshRegistered) {
                 // Preserve a pending reconciliation for the next caller-driven
-                // refresh. Never launch work from a cancelled caller's context.
-                discardTaskRefresh(
-                    sessionToken = sessionToken,
-                    groupId = groupId,
-                    taskFence = taskFence,
-                    allowSuccessor = false
-                )
+                // refresh. The bookkeeping must finish even if the cache mutex
+                // is contended; never launch work from a cancelled caller's context.
+                withContext(NonCancellable) {
+                    discardTaskRefresh(
+                        sessionToken = sessionToken,
+                        groupId = groupId,
+                        taskFence = taskFence,
+                        allowSuccessor = false
+                    )
+                }
             }
             throw cancelled
         } catch (failure: Exception) {

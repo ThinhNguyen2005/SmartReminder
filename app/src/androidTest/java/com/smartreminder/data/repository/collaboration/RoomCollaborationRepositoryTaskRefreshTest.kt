@@ -13,7 +13,6 @@ import com.smartreminder.data.remote.collaboration.CollaborationGroupRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationInviteRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationMemberRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationMutationEnvelopeRemoteDto
-import com.smartreminder.data.remote.collaboration.CollaborationRemoteDataSource
 import com.smartreminder.data.remote.collaboration.CollaborationTaskDetailsRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationTaskRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationTaskReminderRemoteDto
@@ -156,7 +155,7 @@ class RoomCollaborationRepositoryTaskRefreshTest {
     )
 }
 
-private class RoomTaskRemoteDataSource : CollaborationRemoteDataSource {
+private class RoomTaskRemoteDataSource : GroupOnlyRemoteDataSource() {
     var taskDetails: List<CollaborationTaskDetailsRemoteDto> = emptyList()
     val taskMutationCalls = mutableListOf<String>()
 

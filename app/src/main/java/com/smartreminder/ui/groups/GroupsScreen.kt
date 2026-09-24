@@ -77,6 +77,7 @@ import com.smartreminder.ui.theme.CueSpacing
 import com.smartreminder.ui.theme.SmartReminderTheme
 import com.smartreminder.ui.groups.tasks.GroupTasksAction
 import com.smartreminder.ui.groups.tasks.GroupTasksContent
+import com.smartreminder.ui.groups.tasks.GroupTasksScreen
 import com.smartreminder.ui.groups.tasks.GroupTasksUiState
 import java.time.Instant
 
@@ -572,6 +573,15 @@ fun GroupDetailScreen(
     taskUiState: GroupTasksUiState,
     onTaskAction: (GroupTasksAction) -> Unit
 ) {
+    if (taskUiState.screen != GroupTasksScreen.LIST) {
+        GroupTasksContent(
+            uiState = taskUiState,
+            onAction = onTaskAction,
+            modifier = modifier.fillMaxSize(),
+            embedded = false
+        )
+        return
+    }
     val selectedDetail = uiState.selectedGroup
     if (selectedDetail == null) {
         if (uiState.loadState == GroupsLoadState.LOADING) {

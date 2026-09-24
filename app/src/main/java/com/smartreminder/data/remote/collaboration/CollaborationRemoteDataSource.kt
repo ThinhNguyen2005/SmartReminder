@@ -25,40 +25,22 @@ interface CollaborationRemoteDataSource {
     suspend fun fetchMembers(groupId: String): List<CollaborationMemberRemoteDto>
     suspend fun fetchInvites(): List<CollaborationInviteRemoteDto>
 
-    /**
-     * Reads are group-scoped at the transport boundary. Implementations must
-     * never widen these queries to the caller's other groups.
-     *
-     * Defaults keep existing test fakes source-compatible while the task
-     * surface is introduced; the Supabase implementation overrides every
-     * operation below.
-     */
-    suspend fun fetchTasks(groupId: String): List<CollaborationTaskRemoteDto> =
-        unsupportedTaskRemoteOperation()
+    /** Reads are group-scoped at the transport boundary. */
+    suspend fun fetchTasks(groupId: String): List<CollaborationTaskRemoteDto>
 
-    suspend fun fetchTask(groupId: String, taskId: String): CollaborationTaskRemoteDto? =
-        unsupportedTaskRemoteOperation()
+    suspend fun fetchTask(groupId: String, taskId: String): CollaborationTaskRemoteDto?
 
     suspend fun fetchTaskReminders(
         groupId: String,
         taskId: String
-    ): List<CollaborationTaskReminderRemoteDto> = unsupportedTaskRemoteOperation()
+    ): List<CollaborationTaskReminderRemoteDto>
 
     suspend fun fetchTaskDetails(
         groupId: String,
         taskId: String
-    ): CollaborationTaskDetailsRemoteDto? {
-        val task = fetchTask(groupId, taskId) ?: return null
-        return CollaborationTaskDetailsRemoteDto(task, fetchTaskReminders(groupId, taskId))
-    }
+    ): CollaborationTaskDetailsRemoteDto?
 
-    suspend fun fetchTaskDetails(groupId: String): List<CollaborationTaskDetailsRemoteDto> =
-        fetchTasks(groupId).map { task ->
-            CollaborationTaskDetailsRemoteDto(
-                task = task,
-                reminders = fetchTaskReminders(groupId, task.id)
-            )
-        }
+    suspend fun fetchTaskDetails(groupId: String): List<CollaborationTaskDetailsRemoteDto>
 
     suspend fun createGroup(command: CreateGroupCommand): CollaborationMutationEnvelopeRemoteDto
     suspend fun updateGroup(command: UpdateGroupCommand): CollaborationMutationEnvelopeRemoteDto
@@ -71,27 +53,17 @@ interface CollaborationRemoteDataSource {
     suspend fun leaveGroup(command: LeaveGroupCommand): CollaborationMutationEnvelopeRemoteDto
     suspend fun deleteGroup(command: DeleteGroupCommand): CollaborationMutationEnvelopeRemoteDto
 
-    suspend fun createTask(command: CreateGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
-        unsupportedTaskRemoteOperation()
+    suspend fun createTask(command: CreateGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto
 
-    suspend fun editTask(command: EditGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
-        unsupportedTaskRemoteOperation()
+    suspend fun editTask(command: EditGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto
 
-    suspend fun reassignTask(command: ReassignGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
-        unsupportedTaskRemoteOperation()
+    suspend fun reassignTask(command: ReassignGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto
 
-    suspend fun startTask(command: StartGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
-        unsupportedTaskRemoteOperation()
+    suspend fun startTask(command: StartGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto
 
-    suspend fun completeTask(command: CompleteGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
-        unsupportedTaskRemoteOperation()
+    suspend fun completeTask(command: CompleteGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto
 
-    suspend fun cancelTask(command: CancelGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
-        unsupportedTaskRemoteOperation()
+    suspend fun cancelTask(command: CancelGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto
 
-    suspend fun reopenTask(command: ReopenGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto =
-        unsupportedTaskRemoteOperation()
+    suspend fun reopenTask(command: ReopenGroupTaskCommand): CollaborationMutationEnvelopeRemoteDto
 }
-
-private fun unsupportedTaskRemoteOperation(): Nothing =
-    throw UnsupportedOperationException("Group task remote operations are not implemented")

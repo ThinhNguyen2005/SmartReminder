@@ -1,6 +1,7 @@
 package com.smartreminder
 
 import com.smartreminder.di.AppContainer
+import com.smartreminder.ui.groups.tasks.GroupTasksScreen
 import com.smartreminder.ui.groups.tasks.GroupTasksViewModel
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -22,5 +23,12 @@ class MainActivityBoundaryTest {
             "GroupTasksViewModel must be created at the composition root",
             smartReminderApp.parameterTypes.any { it == GroupTasksViewModel::class.java }
         )
+    }
+
+    @Test
+    fun taskEditorRequestsFullScreenNavigationOwnership() {
+        assertTrue(shouldHideBottomNavigation(GroupTasksScreen.EDITOR))
+        assertFalse(shouldHideBottomNavigation(GroupTasksScreen.DETAIL))
+        assertFalse(shouldHideBottomNavigation(GroupTasksScreen.LIST))
     }
 }

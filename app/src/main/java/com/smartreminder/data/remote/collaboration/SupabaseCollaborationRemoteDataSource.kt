@@ -23,6 +23,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -37,11 +38,14 @@ fun interface CollaborationRpcInvoker {
     ): CollaborationMutationEnvelopeRemoteDto
 }
 
-/** Exact request contract for one group-scoped task/details PostgREST read. */
+/** Exact request contract for one group-scoped task/details PostgREST page. */
 data class CollaborationPostgrestSelectRequest(
     val table: String,
     val columns: String,
-    val filters: Map<String, String>
+    val filters: Map<String, String>,
+    val orderBy: List<String> = emptyList(),
+    val rangeStart: Long? = null,
+    val rangeEnd: Long? = null
 )
 
 /** Narrow read seam for contract tests without a live Supabase client. */
@@ -181,15 +185,38 @@ class SupabaseCollaborationRemoteDataSource private constructor(
             }
     }
 
-    override suspend fun fetchTaskDetails(groupId: String): List<CollaborationTaskDetailsRemoteDto> =
-        selectEmbeddedTaskRows(
-            CollaborationPostgrestSelectRequest(
-                table = TASKS_TABLE,
-                columns = TASK_DETAILS_COLUMNS,
-                filters = mapOf("group_id" to groupId)
+    override suspend fun fetchTaskDetails(groupId: String): List<CollaborationTaskDetailsRemoteDto> {
+        val details = mutableListOf<CollaborationTaskDetailsRemoteDto>()
+        val seenTaskIds = mutableSetOf<String>()
+        var rangeStart = 0L
+
+        while (true) {
+            val page = selectEmbeddedTaskRows(
+                CollaborationPostgrestSelectRequest(
+                    table = TASKS_TABLE,
+                    columns = TASK_DETAILS_COLUMNS,
+                    filters = mapOf("group_id" to groupId),
+                    orderBy = TASK_DETAILS_ORDER,
+                    rangeStart = rangeStart,
+                    rangeEnd = rangeStart + TASK_DETAILS_PAGE_SIZE - 1
+                )
             )
-        ).map(CollaborationRemoteMapper::toDetailsRemote)
-            .onEach { details -> requireTaskGroup(details.task, groupId) }
+            page.forEach { row ->
+                if (!seenTaskIds.add(row.id)) {
+                    throw CollaborationMappingException(
+                        "Duplicate collaboration task ${row.id} in paged group read"
+                    )
+                }
+                val mapped = CollaborationRemoteMapper.toDetailsRemote(row)
+                requireTaskGroup(mapped.task, groupId)
+                details += mapped
+            }
+
+            if (page.size < TASK_DETAILS_PAGE_SIZE) break
+            rangeStart += TASK_DETAILS_PAGE_SIZE
+        }
+        return details
+    }
 
     override suspend fun createGroup(command: CreateGroupCommand): CollaborationMutationEnvelopeRemoteDto =
         rpc(CREATE_GROUP_RPC, buildJsonObject {
@@ -326,6 +353,10 @@ class SupabaseCollaborationRemoteDataSource private constructor(
                 filter {
                     request.filters.forEach { (column, value) -> eq(column, value) }
                 }
+                request.orderBy.forEach { column -> order(column, Order.ASCENDING) }
+                if (request.rangeStart != null && request.rangeEnd != null) {
+                    range(request.rangeStart, request.rangeEnd)
+                }
             }.decodeList()
 
     private fun requireTaskGroup(task: CollaborationTaskRemoteDto, groupId: String) {
@@ -350,6 +381,8 @@ class SupabaseCollaborationRemoteDataSource private constructor(
         const val TASKS_TABLE = "group_tasks"
         const val TASK_REMINDERS_TABLE = "group_task_reminders"
         const val TASK_DETAILS_COLUMNS = "*,group_task_reminders(*)"
+        const val TASK_DETAILS_PAGE_SIZE = 100L
+        val TASK_DETAILS_ORDER = listOf("created_at", "id")
 
         const val CREATE_GROUP_RPC = "create_collaboration_group"
         const val UPDATE_GROUP_RPC = "update_collaboration_group"

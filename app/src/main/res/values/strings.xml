@@ -256,6 +256,8 @@
     <string name="groups_task_offline_cached">Working offline with cached tasks</string>
     <string name="groups_task_offline_refreshing">Refreshing tasks; showing cached data</string>
     <string name="groups_task_retry">Retry</string>
+    <string name="groups_task_reload_required">This task changed elsewhere. Reload the latest values before saving.</string>
+    <string name="groups_task_reload_latest">Reload latest task</string>
     <string name="groups_task_error_title">We couldn’t load group tasks</string>
     <string name="groups_task_error_offline">You’re offline. Try again when you have a connection.</string>
     <string name="groups_task_error_not_authorized">You don’t have permission to do that.</string>

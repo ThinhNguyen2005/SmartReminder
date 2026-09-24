@@ -878,6 +878,7 @@ private fun GroupTaskEditor(
     val deadlineError = editor.errors[GroupTaskField.DEADLINE]?.let { taskFieldErrorMessage(it) }
     val remindersError = editor.errors[GroupTaskField.REMINDER_OFFSETS]?.let { taskFieldErrorMessage(it) }
     val backDescription = stringResource(R.string.groups_task_back_description)
+    val editorLockedForReload = editor.requiresAuthoritativeReload
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -909,6 +910,43 @@ private fun GroupTaskEditor(
                 color = CueTheme.colors.textPrimary
             )
         }
+        if (editorLockedForReload) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                shape = RoundedCornerShape(CueSpacing.Lg),
+                color = CueTheme.colors.surfaceSubtle,
+                border = BorderStroke(1.dp, CueTheme.colors.border)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = CueSpacing.Lg, vertical = CueSpacing.Sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(CueSpacing.Sm)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Warning,
+                        contentDescription = null,
+                        tint = CueTheme.colors.warning
+                    )
+                    Text(
+                        text = stringResource(R.string.groups_task_reload_required),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = CueTheme.colors.textPrimary
+                    )
+                    TextButton(
+                        onClick = { onAction(GroupTasksAction.ReloadEditorFromAuthoritativeTask) },
+                        enabled = !uiState.isMutationInProgress,
+                        modifier = Modifier.heightIn(min = CueSpacing.Xxxl)
+                    ) {
+                        Text(text = stringResource(R.string.groups_task_reload_latest))
+                    }
+                }
+            }
+        }
         OutlinedTextField(
             value = editor.title,
             onValueChange = { onAction(GroupTasksAction.ChangeTitle(it)) },
@@ -916,7 +954,7 @@ private fun GroupTaskEditor(
                 .fillMaxWidth()
                 .taskValidationSemantics(titleError),
             label = { Text(text = stringResource(R.string.groups_task_title_label)) },
-            enabled = !uiState.isMutationInProgress,
+            enabled = !uiState.isMutationInProgress && !editorLockedForReload,
             isError = titleError != null,
             supportingText = { TaskFieldErrorText(titleError) },
             maxLines = 3
@@ -926,27 +964,27 @@ private fun GroupTaskEditor(
             onValueChange = { onAction(GroupTasksAction.ChangeDescription(it)) },
             modifier = Modifier.fillMaxWidth(),
             label = { Text(text = stringResource(R.string.groups_task_description)) },
-            enabled = !uiState.isMutationInProgress,
+            enabled = !uiState.isMutationInProgress && !editorLockedForReload,
             minLines = 2,
             maxLines = 5
         )
         TaskMemberPicker(
             members = uiState.members,
             selectedId = editor.assigneeId,
-            enabled = !uiState.isMutationInProgress,
+            enabled = !uiState.isMutationInProgress && !editorLockedForReload,
             error = assigneeError,
             onSelected = { onAction(GroupTasksAction.ChangeAssignee(it)) }
         )
         TaskDeadlinePicker(
             dueAt = editor.dueAt,
-            enabled = !uiState.isMutationInProgress,
+            enabled = !uiState.isMutationInProgress && !editorLockedForReload,
             error = deadlineError,
             context = context,
             onDeadlineChanged = { onAction(GroupTasksAction.ChangeDeadline(it)) }
         )
         TaskReminderPicker(
             offsets = editor.reminderOffsetsSeconds,
-            enabled = !uiState.isMutationInProgress,
+            enabled = !uiState.isMutationInProgress && !editorLockedForReload,
             error = remindersError,
             context = context,
             onChanged = { onAction(GroupTasksAction.ChangeReminderOffsets(it)) }
@@ -972,7 +1010,7 @@ private fun GroupTaskEditor(
             }
             Button(
                 onClick = { onAction(GroupTasksAction.SaveTask) },
-                enabled = !uiState.isMutationInProgress,
+                enabled = !uiState.isMutationInProgress && !editorLockedForReload,
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = CueSpacing.Xxxl)

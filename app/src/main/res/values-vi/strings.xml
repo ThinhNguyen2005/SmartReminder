@@ -255,6 +255,8 @@
     <string name="groups_task_offline_cached">Đang ngoại tuyến với công việc đã lưu</string>
     <string name="groups_task_offline_refreshing">Đang làm mới; hiển thị dữ liệu đã lưu</string>
     <string name="groups_task_retry">Thử lại</string>
+    <string name="groups_task_reload_required">Công việc đã thay đổi ở nơi khác. Hãy tải lại dữ liệu mới nhất trước khi lưu.</string>
+    <string name="groups_task_reload_latest">Tải lại dữ liệu mới nhất</string>
     <string name="groups_task_error_title">Không thể tải công việc của nhóm</string>
     <string name="groups_task_error_offline">Bạn đang ngoại tuyến. Hãy thử lại khi có kết nối.</string>
     <string name="groups_task_error_not_authorized">Bạn không có quyền thực hiện việc này.</string>

@@ -402,6 +402,98 @@ class GroupTasksViewModelTest {
     }
 
     @Test
+    fun `when edit conflicts and refresh returns a newer task, then stale draft cannot be saved`() =
+        runTest(dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            viewModel.onAction(GroupTasksAction.OpenTask(taskId))
+            viewModel.onAction(GroupTasksAction.OpenEditTask)
+            viewModel.onAction(GroupTasksAction.ChangeTitle("Stale draft"))
+
+            repository.mutationResult = CollaborationMutationResult.Conflict(
+                CollaborationError.Conflict("version changed")
+            )
+            viewModel.onAction(GroupTasksAction.SaveTask)
+            advanceUntilIdle()
+            assertEquals(1, repository.editTaskCalls)
+
+            repository.mutationResult = CollaborationMutationResult.Applied
+            repository.setDetails(
+                groupId,
+                listOf(details(task(title = "Authoritative", status = GroupTaskStatus.TODO).copy(version = 4L)))
+            )
+            viewModel.onAction(GroupTasksAction.Refresh)
+            advanceUntilIdle()
+
+            viewModel.onAction(GroupTasksAction.SaveTask)
+            advanceUntilIdle()
+
+            assertEquals(1, repository.editTaskCalls)
+        }
+
+    @Test
+    fun `when edit conflict is refreshed, explicit reload replaces draft and save uses new version`() =
+        runTest(dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            viewModel.onAction(GroupTasksAction.OpenTask(taskId))
+            viewModel.onAction(GroupTasksAction.OpenEditTask)
+            viewModel.onAction(GroupTasksAction.ChangeTitle("Stale draft"))
+
+            repository.mutationResult = CollaborationMutationResult.Conflict(
+                CollaborationError.Conflict("version changed")
+            )
+            viewModel.onAction(GroupTasksAction.SaveTask)
+            advanceUntilIdle()
+
+            repository.mutationResult = CollaborationMutationResult.Applied
+            val authoritativeTask = task(
+                title = "Authoritative",
+                assigneeId = memberId
+            ).copy(
+                description = "Latest description",
+                dueAt = Instant.parse("2026-09-16T10:00:00Z"),
+                version = 4L
+            )
+            repository.setDetails(
+                groupId,
+                listOf(
+                    GroupTaskDetails(
+                        task = authoritativeTask,
+                        reminders = listOf(
+                            GroupTaskReminder(taskId, 1800L),
+                            GroupTaskReminder(taskId, 5400L)
+                        )
+                    )
+                )
+            )
+            viewModel.onAction(GroupTasksAction.Refresh)
+            advanceUntilIdle()
+
+            val staleEditor = viewModel.uiState.value.editor
+            assertEquals("Stale draft", staleEditor?.title)
+            assertEquals(3L, staleEditor?.expectedVersion)
+            assertTrue(staleEditor?.requiresAuthoritativeReload == true)
+
+            viewModel.onAction(GroupTasksAction.ReloadEditorFromAuthoritativeTask)
+            val reloadedEditor = viewModel.uiState.value.editor
+            assertEquals("Authoritative", reloadedEditor?.title)
+            assertEquals("Latest description", reloadedEditor?.description)
+            assertEquals(memberId, reloadedEditor?.assigneeId)
+            assertEquals(Instant.parse("2026-09-16T10:00:00Z"), reloadedEditor?.dueAt)
+            assertEquals(listOf(1800L, 5400L), reloadedEditor?.reminderOffsetsSeconds)
+            assertEquals(4L, reloadedEditor?.expectedVersion)
+            assertFalse(reloadedEditor?.requiresAuthoritativeReload == true)
+
+            viewModel.onAction(GroupTasksAction.ChangeTitle("Merged change"))
+            viewModel.onAction(GroupTasksAction.SaveTask)
+            advanceUntilIdle()
+
+            assertEquals(2, repository.editTaskCalls)
+            assertEquals(4L, repository.lastEditTask?.expectedVersion)
+        }
+
+    @Test
     fun `when mutation is offline, then exposes retry mutation without rendering raw detail`() = runTest(dispatcher) {
         repository.currentUserId = memberId
         repository.mutationResult = CollaborationMutationResult.NetworkRequired
@@ -1147,6 +1239,8 @@ private class FakeCollaborationRepository(
         private set
     var lastEditTask: EditGroupTaskCommand? = null
         private set
+    var editTaskCalls = 0
+        private set
     var lastReassignTask: ReassignGroupTaskCommand? = null
         private set
     var lastStartTask: StartGroupTaskCommand? = null
@@ -1288,6 +1382,7 @@ private class FakeCollaborationRepository(
 
     override suspend fun editTask(command: EditGroupTaskCommand): CollaborationMutationResult {
         lastEditTask = command
+        editTaskCalls += 1
         return mutation(GroupTasksMutation.EDIT)
     }
 

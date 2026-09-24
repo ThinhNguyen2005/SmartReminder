@@ -313,6 +313,80 @@ class G3TaskRemoteContractTest {
     }
 
     @Test
+    fun `group task details read traverses every page`() = runTest {
+        val firstPage = (0 until 100).map { index ->
+            embeddedTask(reminders = emptyList()).copy(id = "task-$index")
+        }
+        val secondPage = listOf(
+            embeddedTask(
+                reminders = listOf(CollaborationTaskReminderRemoteDto("task-100", 42L))
+            ).copy(id = "task-100")
+        )
+        val invoker = TaskPagedReadInvoker(listOf(firstPage, secondPage))
+        val remote = SupabaseCollaborationRemoteDataSource(
+            taskDetailsReadInvoker = invoker,
+            rpcInvoker = TaskRecordingRpcInvoker()
+        )
+
+        val details = remote.fetchTaskDetails("group-1")
+
+        assertEquals(101, details.size)
+        assertEquals(2, invoker.requests.size)
+        assertEquals(101, details.map { it.task.id }.toSet().size)
+        assertEquals(listOf(42L), details.last().reminders.map { it.offsetSeconds })
+        assertEquals(listOf("created_at", "id"), invoker.requests[0].orderBy)
+        assertEquals(0L, invoker.requests[0].rangeStart)
+        assertEquals(99L, invoker.requests[0].rangeEnd)
+        assertEquals(100L, invoker.requests[1].rangeStart)
+        assertEquals(199L, invoker.requests[1].rangeEnd)
+    }
+
+    @Test
+    fun `group task details read fails without returning a partial aggregate`() = runTest {
+        val firstPage = (0 until 100).map { index ->
+            embeddedTask(reminders = emptyList()).copy(id = "task-$index")
+        }
+        val invoker = TaskPagedReadInvoker(
+            pages = listOf(firstPage),
+            failureOnRequest = 2
+        )
+        val remote = SupabaseCollaborationRemoteDataSource(
+            taskDetailsReadInvoker = invoker,
+            rpcInvoker = TaskRecordingRpcInvoker()
+        )
+
+        var failure: Throwable? = null
+        try {
+            remote.fetchTaskDetails("group-1")
+        } catch (throwable: Throwable) {
+            failure = throwable
+        }
+
+        assertTrue(failure is IllegalStateException)
+        assertEquals(2, invoker.requests.size)
+    }
+
+    @Test
+    fun `duplicate task rows across pages are rejected`() = runTest {
+        val firstPage = (0 until 100).map { index ->
+            embeddedTask(reminders = emptyList()).copy(id = "task-$index")
+        }
+        val secondPage = listOf(embeddedTask(reminders = emptyList()).copy(id = "task-99"))
+        val remote = SupabaseCollaborationRemoteDataSource(
+            taskDetailsReadInvoker = TaskPagedReadInvoker(listOf(firstPage, secondPage)),
+            rpcInvoker = TaskRecordingRpcInvoker()
+        )
+
+        var failure: Throwable? = null
+        try {
+            remote.fetchTaskDetails("group-1")
+        } catch (throwable: Throwable) {
+            failure = throwable
+        }
+        assertTrue(failure is CollaborationMappingException)
+    }
+
+    @Test
     fun `missing embedded task row returns null without a second read`() = runTest {
         val invoker = TaskRecordingReadInvoker(rows = emptyList())
         val remote = SupabaseCollaborationRemoteDataSource(
@@ -392,6 +466,23 @@ class G3TaskRemoteContractTest {
         ): List<CollaborationTaskWithRemindersRemoteDto> {
             requests += request
             return rows
+        }
+    }
+
+    private class TaskPagedReadInvoker(
+        private val pages: List<List<CollaborationTaskWithRemindersRemoteDto>>,
+        private val failureOnRequest: Int? = null
+    ) : CollaborationPostgrestReadInvoker {
+        val requests = mutableListOf<CollaborationPostgrestSelectRequest>()
+
+        override suspend fun select(
+            request: CollaborationPostgrestSelectRequest
+        ): List<CollaborationTaskWithRemindersRemoteDto> {
+            requests += request
+            if (requests.size == failureOnRequest) {
+                throw IllegalStateException("page unavailable")
+            }
+            return pages.getOrElse(requests.size - 1) { emptyList() }
         }
     }
 }

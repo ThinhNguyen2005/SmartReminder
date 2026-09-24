@@ -112,6 +112,7 @@ data class GroupTaskEditorUiState(
     val dueAt: java.time.Instant? = null,
     val reminderOffsetsSeconds: List<Long> = emptyList(),
     val expectedVersion: Long? = null,
+    val requiresAuthoritativeReload: Boolean = false,
     val errors: Map<GroupTaskField, GroupTaskFieldError> = emptyMap()
 )
 

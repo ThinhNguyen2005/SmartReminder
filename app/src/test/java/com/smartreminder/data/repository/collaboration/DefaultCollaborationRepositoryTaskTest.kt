@@ -146,6 +146,30 @@ class DefaultCollaborationRepositoryTaskTest {
     }
 
     @Test
+    fun `refreshTasks keeps cache when a later task page fails`() = runTest {
+        val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Keep me")))
+        val remote = PagedTaskRemote(
+            pages = listOf(
+                listOf(remoteDetails(title = "Page one")),
+                listOf(remoteDetails(title = "Page two"))
+            ),
+            failureOnPage = 2
+        )
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+
+        val result = repository.refreshTasks(groupId)
+
+        assertTrue(result is CollaborationMutationResult.Failure)
+        assertTrue(
+            (result as CollaborationMutationResult.Failure).error is
+                CollaborationError.NetworkUnavailable
+        )
+        assertEquals(2, remote.pageCalls)
+        assertEquals(listOf("Keep me"), repository.observeTasks(groupId).first().map { it.title })
+        assertEquals(0, cache.replaceTasksCalls)
+    }
+
+    @Test
     fun `refreshTasks completing after session clear cannot repopulate a redacted cache`() = runTest {
         val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Private")))
         val remote = FakeTaskRemote().apply {
@@ -717,6 +741,33 @@ class DefaultCollaborationRepositoryTaskTest {
     }
 
     @Test
+    fun `cancelled refresh cleans its fence after waiting for the cache write mutex`() = runTest {
+        val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Old")))
+        val remote = FakeTaskRemote().apply {
+            taskDetails = listOf(remoteDetails(title = "Cancelled"))
+        }
+        val repository = DefaultCollaborationRepository(cache, remote) { true }
+        val taskRemoteStarted = CompletableDeferred<Unit>()
+        val taskRemoteCompletion = CompletableDeferred<Unit>()
+        remote.blockNextTaskDetailsWith(taskRemoteStarted, taskRemoteCompletion)
+        val cancelledRefresh = async { repository.refreshTasks(groupId) }
+        withTimeout(5_000) { taskRemoteStarted.await() }
+
+        val groupsWriteStarted = CompletableDeferred<Unit>()
+        val groupsWriteCompletion = CompletableDeferred<Unit>()
+        cache.blockNextReplaceGroupsWith(groupsWriteStarted, groupsWriteCompletion)
+        val groupsRefresh = async { repository.refreshGroups() }
+        withTimeout(5_000) { groupsWriteStarted.await() }
+
+        taskRemoteCompletion.complete(Unit)
+        cancelledRefresh.cancel()
+        groupsWriteCompletion.complete(Unit)
+        assertEquals(CollaborationMutationResult.Applied, withTimeout(5_000) { groupsRefresh.await() })
+        withTimeout(5_000) { cancelledRefresh.join() }
+        assertTrue(readActiveTaskRefreshFences(repository, groupId).isEmpty())
+    }
+
+    @Test
     fun `late task access loss from an old session cannot evict the new session cache`() = runTest {
         listOf("NOT_AUTHORIZED", "NOT_FOUND").forEach { status ->
             val cache = FakeTaskCache(cachedDetails = listOf(cachedDetails(title = "Session A")))
@@ -750,6 +801,22 @@ class DefaultCollaborationRepositoryTaskTest {
             assertEquals(listOf("Session B"), repository.observeTasks(groupId).first().map { it.title })
             assertEquals(0, cache.removeTasksCalls)
         }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun readActiveTaskRefreshFences(
+        repository: DefaultCollaborationRepository,
+        groupId: CollaborationGroupId
+    ): Map<Long, Int> {
+        val statesField = DefaultCollaborationRepository::class.java
+            .getDeclaredField("taskRefreshStates")
+            .apply { isAccessible = true }
+        val states = statesField.get(repository) as Map<String, Any>
+        val state = states[groupId.value] ?: return emptyMap()
+        val activeFencesField = state.javaClass
+            .getDeclaredField("activeRefreshFences")
+            .apply { isAccessible = true }
+        return activeFencesField.get(state) as Map<Long, Int>
     }
 
     private fun cachedDetails(
@@ -831,6 +898,9 @@ private class FakeTaskCache(
     var removeTasksCalls = 0
         private set
     var findTaskGroupFailure: Throwable? = null
+    private val replaceGroupsGates = mutableListOf<
+        Pair<CompletableDeferred<Unit>, CompletableDeferred<Unit>>
+    >()
 
     init {
         val details = cachedDetails.map { GroupTaskWithRemindersEntity(
@@ -851,7 +921,13 @@ private class FakeTaskCache(
         taskDetailFlows.getOrPut(groupId) { MutableStateFlow(emptyList()) }
     override fun observeInvites(): Flow<List<CachedGroupInviteEntity>> = MutableStateFlow(emptyList())
 
-    override suspend fun replaceGroups(groups: List<CachedCollaborationGroupEntity>) = Unit
+    override suspend fun replaceGroups(groups: List<CachedCollaborationGroupEntity>) {
+        if (replaceGroupsGates.isNotEmpty()) {
+            val (started, completion) = replaceGroupsGates.removeAt(0)
+            started.complete(Unit)
+            completion.await()
+        }
+    }
     override suspend fun replaceGroup(
         group: CachedCollaborationGroupEntity,
         members: List<CachedGroupMemberEntity>
@@ -897,6 +973,13 @@ private class FakeTaskCache(
             tasks = listOf(relation.task),
             reminders = relation.reminders
         )
+    }
+
+    fun blockNextReplaceGroupsWith(
+        started: CompletableDeferred<Unit>,
+        completion: CompletableDeferred<Unit>
+    ) {
+        replaceGroupsGates += started to completion
     }
 
     override suspend fun clearAll() {
@@ -945,6 +1028,23 @@ private class FakeTaskRemote : CollaborationRemoteDataSource {
     override suspend fun fetchGroup(groupId: String): CollaborationGroupRemoteDto? = null
     override suspend fun fetchMembers(groupId: String): List<CollaborationMemberRemoteDto> = emptyList()
     override suspend fun fetchInvites(): List<CollaborationInviteRemoteDto> = emptyList()
+    override suspend fun fetchTasks(groupId: String): List<CollaborationTaskRemoteDto> =
+        taskDetails.map(CollaborationTaskDetailsRemoteDto::task)
+
+    override suspend fun fetchTask(
+        groupId: String,
+        taskId: String
+    ): CollaborationTaskRemoteDto? = taskDetails
+        .firstOrNull { it.task.groupId == groupId && it.task.id == taskId }
+        ?.task
+
+    override suspend fun fetchTaskReminders(
+        groupId: String,
+        taskId: String
+    ): List<CollaborationTaskReminderRemoteDto> = taskDetails
+        .firstOrNull { it.task.groupId == groupId && it.task.id == taskId }
+        ?.reminders
+        .orEmpty()
 
     override suspend fun fetchTaskDetails(groupId: String): List<CollaborationTaskDetailsRemoteDto> {
         fetchTaskDetailsCalls += 1
@@ -958,6 +1058,13 @@ private class FakeTaskRemote : CollaborationRemoteDataSource {
             completion.await()
         }
         return taskDetailsByCall?.getOrNull(callNumber - 1) ?: taskDetails
+    }
+
+    override suspend fun fetchTaskDetails(
+        groupId: String,
+        taskId: String
+    ): CollaborationTaskDetailsRemoteDto? = taskDetails.firstOrNull {
+        it.task.groupId == groupId && it.task.id == taskId
     }
 
     override suspend fun createGroup(command: CreateGroupCommand) = applied()
@@ -1017,4 +1124,24 @@ private class FakeTaskRemote : CollaborationRemoteDataSource {
     }
 
     private fun applied() = CollaborationMutationEnvelopeRemoteDto(status = "APPLIED")
+}
+
+private class PagedTaskRemote(
+    private val pages: List<List<CollaborationTaskDetailsRemoteDto>>,
+    private val failureOnPage: Int
+) : CollaborationRemoteDataSource by FakeTaskRemote() {
+    var pageCalls = 0
+        private set
+
+    override suspend fun fetchTaskDetails(groupId: String): List<CollaborationTaskDetailsRemoteDto> {
+        val aggregate = mutableListOf<CollaborationTaskDetailsRemoteDto>()
+        pages.forEach { page ->
+            pageCalls += 1
+            if (pageCalls == failureOnPage) {
+                throw IllegalStateException("page unavailable")
+            }
+            aggregate += page
+        }
+        return aggregate
+    }
 }

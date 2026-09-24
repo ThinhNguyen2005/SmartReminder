@@ -12,7 +12,6 @@ import com.smartreminder.data.remote.collaboration.CollaborationGroupRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationInviteRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationMemberRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationMutationEnvelopeRemoteDto
-import com.smartreminder.data.remote.collaboration.CollaborationRemoteDataSource
 import com.smartreminder.data.remote.collaboration.UserProfileRemoteDto
 import com.smartreminder.domain.repository.AcceptInviteCommand
 import com.smartreminder.domain.repository.ChangeMemberRoleCommand
@@ -177,7 +176,7 @@ class RoomCollaborationRepositoryRefreshTest {
     )
 }
 
-private class RefreshRemoteDataSource : CollaborationRemoteDataSource {
+private class RefreshRemoteDataSource : GroupOnlyRemoteDataSource() {
     val readCalls = mutableListOf<String>()
     var detailFailure: Throwable? = null
 

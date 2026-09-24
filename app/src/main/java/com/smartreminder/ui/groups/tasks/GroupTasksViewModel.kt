@@ -106,6 +106,7 @@ class GroupTasksViewModel(
             GroupTasksAction.BackFromTask -> backFromTask()
             GroupTasksAction.OpenCreateTask -> openCreateEditor()
             GroupTasksAction.OpenEditTask -> openEditEditor()
+            GroupTasksAction.ReloadEditorFromAuthoritativeTask -> reloadEditorFromAuthoritativeTask()
             GroupTasksAction.CancelEditor -> cancelEditor()
             GroupTasksAction.SaveTask -> saveEditor()
             is GroupTasksAction.ChangeTitle -> updateEditor {
@@ -249,6 +250,7 @@ class GroupTasksViewModel(
                         } else {
                             observedDetails
                         }
+                        markEditorReloadRequired(observedDetails)
                         ready?.complete(Unit)
                         updateDetailStateFromObservation()
                         render()
@@ -398,6 +400,7 @@ class GroupTasksViewModel(
                     )
                     taskDetails.value = taskDetails.value
                         .filterNot { it.task.id == selectedId } + freshDetails
+                    markEditorReloadRequired(taskDetails.value)
                     updateDetailStateFromObservation()
                     render()
                 }
@@ -595,8 +598,33 @@ class GroupTasksViewModel(
             assigneeId = task.assigneeId,
             dueAt = task.dueAt,
             reminderOffsetsSeconds = details.reminders.sortedBy { it.offsetSeconds }.map { it.offsetSeconds },
-            expectedVersion = task.version
+            expectedVersion = task.version,
+            requiresAuthoritativeReload = false
         )
+        confirmation.value = null
+        render()
+    }
+
+    private fun reloadEditorFromAuthoritativeTask() {
+        val currentEditor = editor.value ?: return
+        val mode = currentEditor.mode as? GroupTaskEditorMode.Edit ?: return
+        val details = findDetails(mode.taskId) ?: return setError(GroupTasksUiError.NotFound)
+        val task = details.task
+        advancePresentationContext()
+        editor.value = currentEditor.copy(
+            taskId = task.id,
+            title = task.title,
+            description = task.description.orEmpty(),
+            assigneeId = task.assigneeId,
+            dueAt = task.dueAt,
+            reminderOffsetsSeconds = details.reminders.sortedBy { it.offsetSeconds }
+                .map { it.offsetSeconds },
+            expectedVersion = task.version,
+            requiresAuthoritativeReload = false,
+            errors = emptyMap()
+        )
+        error.value = null
+        detailError.value = null
         confirmation.value = null
         render()
     }
@@ -612,6 +640,12 @@ class GroupTasksViewModel(
     private fun saveEditor() {
         invalidateRetry()
         val draft = editor.value ?: return
+        if (draft.requiresAuthoritativeReload) {
+            error.value = GroupTasksUiError.Conflict
+            detailError.value = GroupTasksUiError.Conflict
+            render()
+            return
+        }
         val validation = validate(draft)
         if (validation.isNotEmpty()) {
             val first = validation.entries.first()
@@ -894,6 +928,9 @@ class GroupTasksViewModel(
         preserveRetry: Boolean = false
     ) {
         if (!preserveRetry) invalidateRetry()
+        if (domainError is CollaborationError.Conflict && pending.mutation == GroupTasksMutation.EDIT) {
+            markEditorReloadRequired(pending.taskId)
+        }
         if (domainError == CollaborationError.NotAuthorized || domainError == CollaborationError.NotFound) {
             accessRestricted.value = true
         }
@@ -1049,6 +1086,25 @@ class GroupTasksViewModel(
         }
     }
 
+    private fun markEditorReloadRequired(observedDetails: List<GroupTaskDetails>) {
+        val currentEditor = editor.value ?: return
+        val mode = currentEditor.mode as? GroupTaskEditorMode.Edit ?: return
+        val authoritativeTask = observedDetails.firstOrNull { it.task.id == mode.taskId }?.task
+            ?: return
+        val draftVersion = currentEditor.expectedVersion ?: return
+        if (authoritativeTask.version != draftVersion && !currentEditor.requiresAuthoritativeReload) {
+            editor.value = currentEditor.copy(requiresAuthoritativeReload = true)
+        }
+    }
+
+    private fun markEditorReloadRequired(taskId: GroupTaskId) {
+        val currentEditor = editor.value ?: return
+        val mode = currentEditor.mode as? GroupTaskEditorMode.Edit ?: return
+        if (mode.taskId == taskId && !currentEditor.requiresAuthoritativeReload) {
+            editor.value = currentEditor.copy(requiresAuthoritativeReload = true)
+        }
+    }
+
     private fun advancePresentationContext() {
         presentationContextGeneration += 1L
         invalidateRetry()
@@ -1136,6 +1192,7 @@ class GroupTasksViewModel(
         GroupTasksAction.BackFromTask,
         GroupTasksAction.OpenCreateTask,
         GroupTasksAction.OpenEditTask,
+        GroupTasksAction.ReloadEditorFromAuthoritativeTask,
         GroupTasksAction.CancelEditor,
         GroupTasksAction.SaveTask,
         is GroupTasksAction.ChangeTitle,

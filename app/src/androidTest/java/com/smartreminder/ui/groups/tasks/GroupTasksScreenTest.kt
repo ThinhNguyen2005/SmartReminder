@@ -260,6 +260,40 @@ class GroupTasksScreenTest {
     }
 
     @Test
+    fun staleEditorOffersExplicitReloadAndDisablesSave() {
+        val actions = mutableListOf<GroupTasksAction>()
+        val state = GroupTasksUiState(
+            loadState = GroupTasksLoadState.CONTENT,
+            screen = GroupTasksScreen.EDITOR,
+            selectedGroupId = groupId,
+            members = listOf(member(ownerId, "Ari")),
+            editor = GroupTaskEditorUiState(
+                mode = GroupTaskEditorMode.Edit(taskId),
+                taskId = taskId,
+                title = "Stale draft",
+                assigneeId = ownerId,
+                dueAt = Instant.parse("2026-09-16T10:00:00Z"),
+                reminderOffsetsSeconds = listOf(900L),
+                expectedVersion = 3L,
+                requiresAuthoritativeReload = true
+            )
+        )
+
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupTasksContent(uiState = state, onAction = { actions += it })
+            }
+        }
+
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_task_reload_latest)
+        ).performClick()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.groups_task_save))
+            .assertIsNotEnabled()
+        assertEquals(listOf(GroupTasksAction.ReloadEditorFromAuthoritativeTask), actions)
+    }
+
+    @Test
     fun embeddedDetailDoesNotAddSecondScrollContainer() {
         val task = task()
         val state = GroupTasksUiState(

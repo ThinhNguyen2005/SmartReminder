@@ -3,8 +3,10 @@ package com.smartreminder.ui.groups
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
 import com.smartreminder.ui.groups.tasks.GroupTasksAction
 import com.smartreminder.ui.groups.tasks.GroupTasksLoadState
+import com.smartreminder.ui.groups.tasks.GroupTasksMutation
 import com.smartreminder.ui.groups.tasks.GroupTasksScreen
 import com.smartreminder.ui.groups.tasks.GroupTasksUiState
+import com.smartreminder.ui.groups.tasks.PendingGroupTaskMutation
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -95,6 +97,46 @@ class GroupsRouteTest {
                 tasksState = GroupTasksUiState(
                     selectedGroupId = CollaborationGroupId("stale-group")
                 )
+            )
+        )
+    }
+
+    @Test
+    fun `group task navigation is deferred during mutation and replays latest group`() {
+        val groupA = CollaborationGroupId("group-a")
+        val groupB = CollaborationGroupId("group-b")
+        val pendingTaskState = GroupTasksUiState(
+            selectedGroupId = groupA,
+            pendingMutation = PendingGroupTaskMutation(
+                mutation = GroupTasksMutation.EDIT,
+                groupId = groupA,
+                taskId = com.smartreminder.domain.model.collaboration.ids.GroupTaskId("task-a")
+            )
+        )
+
+        assertNull(
+            groupTasksSynchronizationAction(
+                groupsState = GroupsUiState(isRefreshing = false),
+                tasksState = pendingTaskState
+            )
+        )
+        assertNull(
+            groupTasksSynchronizationAction(
+                groupsState = GroupsUiState(
+                    screen = GroupsScreen.DETAIL,
+                    selectedGroupId = groupB
+                ),
+                tasksState = pendingTaskState
+            )
+        )
+        assertEquals(
+            GroupTasksAction.OpenGroup(groupB),
+            groupTasksSynchronizationAction(
+                groupsState = GroupsUiState(
+                    screen = GroupsScreen.DETAIL,
+                    selectedGroupId = groupB
+                ),
+                tasksState = pendingTaskState.copy(pendingMutation = null)
             )
         )
     }

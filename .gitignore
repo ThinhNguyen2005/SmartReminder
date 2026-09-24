@@ -19,3 +19,4 @@ agent/
 *.7z
 .agents/
 .agent/
+.superpowers/

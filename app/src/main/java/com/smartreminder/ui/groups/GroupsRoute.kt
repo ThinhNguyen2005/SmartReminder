@@ -184,6 +184,7 @@ internal fun groupTasksSynchronizationAction(
     groupsState: GroupsUiState,
     tasksState: GroupTasksUiState
 ): GroupTasksAction? {
+    if (tasksState.pendingMutation != null) return null
     val groupId = groupsState.selectedGroupId
     if (groupId == null) {
         return if (!groupsState.isRefreshing && tasksState.selectedGroupId != null) {

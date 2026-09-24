@@ -240,6 +240,54 @@ class GroupsScreenTest {
     }
 
     @Test
+    fun taskDetailUsesStableFullContentShellOutsideGroupDetailList() {
+        val group = group("group-1", "Household")
+        val actor = member(group.id.value, "owner-1", GroupRole.OWNER)
+        val task = GroupTask(
+            id = GroupTaskId("task-1"),
+            groupId = group.id,
+            title = "Prepare slides",
+            createdBy = actor.userId,
+            assigneeId = actor.userId,
+            dueAt = Instant.parse("2026-09-16T10:00:00Z"),
+            status = GroupTaskStatus.TODO,
+            version = 4L,
+            createdAt = Instant.parse("2026-09-15T09:00:00Z"),
+            updatedAt = Instant.parse("2026-09-15T09:00:00Z")
+        )
+
+        composeRule.setContent {
+            SmartReminderTheme {
+                GroupDetailScreen(
+                    uiState = GroupsUiState(
+                        screen = GroupsScreen.DETAIL,
+                        loadState = GroupsLoadState.LOADING
+                    ),
+                    onAction = {},
+                    taskUiState = GroupTasksUiState(
+                        loadState = GroupTasksLoadState.CONTENT,
+                        screen = com.smartreminder.ui.groups.tasks.GroupTasksScreen.DETAIL,
+                        selectedGroupId = group.id,
+                        selectedTaskId = task.id,
+                        selectedTask = com.smartreminder.ui.groups.tasks.GroupTaskDetailUiModel(
+                            details = com.smartreminder.domain.model.collaboration.GroupTaskDetails(task),
+                            assignee = actor,
+                            isOverdue = false,
+                            permissions = com.smartreminder.ui.groups.tasks.GroupTaskPermissions()
+                        )
+                    ),
+                    onTaskAction = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.groups_members_heading)
+        ).assertDoesNotExist()
+        composeRule.onNodeWithText(task.title).assertIsDisplayed()
+    }
+
+    @Test
     fun createDialogDispatchesTypedCreateAction() {
         val actions = mutableListOf<GroupsAction>()
 

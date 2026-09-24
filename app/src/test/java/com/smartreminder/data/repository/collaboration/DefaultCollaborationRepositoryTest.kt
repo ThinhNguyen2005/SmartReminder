@@ -27,19 +27,29 @@ import com.smartreminder.data.remote.collaboration.CollaborationInviteRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationMemberRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationMutationEnvelopeRemoteDto
 import com.smartreminder.data.remote.collaboration.CollaborationRemoteDataSource
+import com.smartreminder.data.remote.collaboration.CollaborationTaskDetailsRemoteDto
+import com.smartreminder.data.remote.collaboration.CollaborationTaskRemoteDto
+import com.smartreminder.data.remote.collaboration.CollaborationTaskReminderRemoteDto
 import com.smartreminder.data.remote.collaboration.UserProfileRemoteDto
 import com.smartreminder.domain.model.collaboration.ids.CollaborationGroupId
 import com.smartreminder.domain.model.collaboration.ids.GroupInviteId
 import com.smartreminder.domain.model.collaboration.ids.UserId
 import com.smartreminder.domain.repository.AcceptInviteCommand
+import com.smartreminder.domain.repository.CancelGroupTaskCommand
 import com.smartreminder.domain.repository.ChangeMemberRoleCommand
+import com.smartreminder.domain.repository.CompleteGroupTaskCommand
 import com.smartreminder.domain.repository.CollaborationError
 import com.smartreminder.domain.repository.CollaborationMutationResult
 import com.smartreminder.domain.repository.CreateGroupCommand
+import com.smartreminder.domain.repository.CreateGroupTaskCommand
 import com.smartreminder.domain.repository.DeleteGroupCommand
+import com.smartreminder.domain.repository.EditGroupTaskCommand
 import com.smartreminder.domain.repository.InviteMemberCommand
 import com.smartreminder.domain.repository.LeaveGroupCommand
 import com.smartreminder.domain.repository.RemoveMemberCommand
+import com.smartreminder.domain.repository.ReassignGroupTaskCommand
+import com.smartreminder.domain.repository.ReopenGroupTaskCommand
+import com.smartreminder.domain.repository.StartGroupTaskCommand
 import com.smartreminder.domain.repository.TransferOwnershipCommand
 import com.smartreminder.domain.repository.UpdateGroupCommand
 import com.smartreminder.domain.model.collaboration.GroupRole
@@ -784,7 +794,51 @@ private class FakeCollaborationCache(
     }
 }
 
-private class DeferredRaceRemoteDataSource : CollaborationRemoteDataSource {
+private abstract class GroupOnlyRemoteDataSource : CollaborationRemoteDataSource {
+    override suspend fun fetchTasks(groupId: String): List<CollaborationTaskRemoteDto> =
+        error("task read is not used by this group-only fake")
+
+    override suspend fun fetchTask(groupId: String, taskId: String): CollaborationTaskRemoteDto? =
+        error("task read is not used by this group-only fake")
+
+    override suspend fun fetchTaskReminders(
+        groupId: String,
+        taskId: String
+    ): List<CollaborationTaskReminderRemoteDto> =
+        error("task read is not used by this group-only fake")
+
+    override suspend fun fetchTaskDetails(
+        groupId: String,
+        taskId: String
+    ): CollaborationTaskDetailsRemoteDto? =
+        error("task read is not used by this group-only fake")
+
+    override suspend fun fetchTaskDetails(groupId: String): List<CollaborationTaskDetailsRemoteDto> =
+        error("task read is not used by this group-only fake")
+
+    override suspend fun createTask(command: CreateGroupTaskCommand) =
+        error("task mutation is not used by this group-only fake")
+
+    override suspend fun editTask(command: EditGroupTaskCommand) =
+        error("task mutation is not used by this group-only fake")
+
+    override suspend fun reassignTask(command: ReassignGroupTaskCommand) =
+        error("task mutation is not used by this group-only fake")
+
+    override suspend fun startTask(command: StartGroupTaskCommand) =
+        error("task mutation is not used by this group-only fake")
+
+    override suspend fun completeTask(command: CompleteGroupTaskCommand) =
+        error("task mutation is not used by this group-only fake")
+
+    override suspend fun cancelTask(command: CancelGroupTaskCommand) =
+        error("task mutation is not used by this group-only fake")
+
+    override suspend fun reopenTask(command: ReopenGroupTaskCommand) =
+        error("task mutation is not used by this group-only fake")
+}
+
+private class DeferredRaceRemoteDataSource : GroupOnlyRemoteDataSource() {
     val staleGroupFetchStarted = CompletableDeferred<Unit>()
     val staleGroupFetchCompletion = CompletableDeferred<Unit>()
     private var fetchGroupCalls = 0
@@ -834,7 +888,7 @@ private class DeferredRaceRemoteDataSource : CollaborationRemoteDataSource {
     private fun applied() = CollaborationMutationEnvelopeRemoteDto(status = "APPLIED")
 }
 
-private class FakeCollaborationRemoteDataSource : CollaborationRemoteDataSource {
+private class FakeCollaborationRemoteDataSource : GroupOnlyRemoteDataSource() {
     var groups: List<CollaborationGroupRemoteDto> = emptyList()
     var members: List<CollaborationMemberRemoteDto> = emptyList()
     var groupsFailure: Throwable? = null
@@ -929,7 +983,7 @@ private class FakeCollaborationRemoteDataSource : CollaborationRemoteDataSource 
 
 private class DeferredInviteRaceRemoteDataSource(
     private val inviteId: GroupInviteId
-) : CollaborationRemoteDataSource {
+) : GroupOnlyRemoteDataSource() {
     val acceptStarted = CompletableDeferred<Unit>()
     val acceptCompletion = CompletableDeferred<Unit>()
     val declineStarted = CompletableDeferred<Unit>()

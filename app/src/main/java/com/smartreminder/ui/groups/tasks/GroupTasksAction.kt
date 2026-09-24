@@ -14,6 +14,7 @@ sealed interface GroupTasksAction {
     data object BackFromTask : GroupTasksAction
     data object OpenCreateTask : GroupTasksAction
     data object OpenEditTask : GroupTasksAction
+    data object ReloadEditorFromAuthoritativeTask : GroupTasksAction
     data object CancelEditor : GroupTasksAction
     data object SaveTask : GroupTasksAction
 

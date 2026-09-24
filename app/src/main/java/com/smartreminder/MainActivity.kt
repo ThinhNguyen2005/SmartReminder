@@ -20,7 +20,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldValue
+import androidx.compose.material3.adaptive.navigationsuite.rememberNavigationSuiteScaffoldState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -52,6 +55,7 @@ import com.smartreminder.ui.schedules.editor.UuidRoutineEditorIdGenerator
 import com.smartreminder.ui.calendar.CalendarPlaceholderScreen
 import com.smartreminder.ui.groups.GroupsRoute
 import com.smartreminder.ui.groups.GroupsViewModel
+import com.smartreminder.ui.groups.tasks.GroupTasksScreen
 import com.smartreminder.ui.groups.tasks.GroupTasksViewModel
 import com.smartreminder.ui.theme.SmartReminderTheme
 import com.smartreminder.ui.today.TodayPlaceholderScreen
@@ -173,8 +177,25 @@ fun SmartReminderApp(
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.TODAY) }
     val destinationStateHolder = rememberSaveableStateHolder()
+    val taskUiState by groupTasksViewModel.uiState.collectAsStateWithLifecycle()
+    val navigationSuiteState = rememberNavigationSuiteScaffoldState(
+        initialValue = if (shouldHideBottomNavigation(taskUiState.screen)) {
+            NavigationSuiteScaffoldValue.Hidden
+        } else {
+            NavigationSuiteScaffoldValue.Visible
+        }
+    )
+
+    LaunchedEffect(taskUiState.screen) {
+        if (shouldHideBottomNavigation(taskUiState.screen)) {
+            navigationSuiteState.hide()
+        } else {
+            navigationSuiteState.show()
+        }
+    }
 
     NavigationSuiteScaffold(
+        state = navigationSuiteState,
         navigationSuiteItems = {
             AppDestination.entries.forEach {
                 item(
@@ -232,6 +253,9 @@ fun SmartReminderApp(
         }
     }
 }
+
+internal fun shouldHideBottomNavigation(taskScreen: GroupTasksScreen): Boolean =
+    taskScreen == GroupTasksScreen.EDITOR
 
 enum class AppDestination(
     @param:StringRes val labelRes: Int,
