@@ -8,11 +8,13 @@ import com.smartreminder.data.local.room.dao.CollaborationCacheDao
 import com.smartreminder.data.local.room.dao.PendingGroupCommandDao
 import com.smartreminder.data.local.room.dao.RoutineDao
 import com.smartreminder.data.local.room.dao.ScheduleGroupDao
+import com.smartreminder.data.local.room.dao.TaskDao
 import com.smartreminder.data.local.room.entity.RoutineEntity
 import com.smartreminder.data.local.room.entity.RoutineItemEntity
 import com.smartreminder.data.local.room.entity.RoutineOverrideEntity
 import com.smartreminder.data.local.room.entity.RoutineWeeklyDayEntity
 import com.smartreminder.data.local.room.entity.ScheduleGroupEntity
+import com.smartreminder.data.local.room.entity.TaskEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedCollaborationGroupEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupInviteEntity
 import com.smartreminder.data.local.room.entity.collaboration.CachedGroupMemberEntity
@@ -22,6 +24,7 @@ import com.smartreminder.data.local.room.entity.collaboration.CachedGroupTaskRem
 import com.smartreminder.data.local.room.entity.collaboration.PendingGroupCommandEntity
 import com.smartreminder.data.local.room.migration.MIGRATION_1_2
 import com.smartreminder.data.local.room.migration.MIGRATION_2_3
+import com.smartreminder.data.local.room.migration.MIGRATION_3_4
 
 @Database(
     entities = [
@@ -30,6 +33,7 @@ import com.smartreminder.data.local.room.migration.MIGRATION_2_3
         RoutineWeeklyDayEntity::class,
         RoutineItemEntity::class,
         RoutineOverrideEntity::class,
+        TaskEntity::class,
         CachedCollaborationGroupEntity::class,
         CachedGroupMemberEntity::class,
         CachedGroupInviteEntity::class,
@@ -38,13 +42,14 @@ import com.smartreminder.data.local.room.migration.MIGRATION_2_3
         CachedGroupReminderEntity::class,
         PendingGroupCommandEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class CueDatabase : RoomDatabase() {
 
     abstract fun scheduleGroupDao(): ScheduleGroupDao
     abstract fun routineDao(): RoutineDao
+    abstract fun taskDao(): TaskDao
     abstract fun collaborationCacheDao(): CollaborationCacheDao
     abstract fun pendingGroupCommandDao(): PendingGroupCommandDao
 
@@ -57,7 +62,8 @@ abstract class CueDatabase : RoomDatabase() {
                 CueDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
         }
     }

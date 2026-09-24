@@ -46,4 +46,11 @@ interface UserPreferencesSyncCoordinator {
      * @throws Exception if cloud flush or auth sign out fails.
      */
     suspend fun signOutAndClearLocal()
+
+    /**
+     * Manually forces a synchronization of current local preferences to the remote cloud.
+     *
+     * @throws Exception if user is unauthenticated or if network/cloud request fails.
+     */
+    suspend fun forceSync()
 }

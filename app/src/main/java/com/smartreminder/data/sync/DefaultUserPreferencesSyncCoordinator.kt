@@ -20,18 +20,23 @@ class DefaultUserPreferencesSyncCoordinator(
     private val cloudRepository: UserPreferencesCloudRepository,
     private val getCurrentUserId: () -> String?,
     private val signOutAuth: suspend () -> Unit,
-    private val clearCollaborationCache: suspend () -> Unit = {}
+    private val clearCollaborationCache: suspend () -> Unit = {},
+    private val clearLocalDatabase: (suspend () -> Unit)? = null
 ) : UserPreferencesSyncCoordinator {
 
     constructor(
         localRepository: UserPreferencesRepository,
         cloudRepository: UserPreferencesCloudRepository,
-        supabase: SupabaseClient
+        supabase: SupabaseClient,
+        clearCollaborationCache: suspend () -> Unit = {},
+        clearLocalDatabase: (suspend () -> Unit)? = null
     ) : this(
         localRepository = localRepository,
         cloudRepository = cloudRepository,
         getCurrentUserId = { supabase.auth.currentUserOrNull()?.id },
-        signOutAuth = { supabase.auth.signOut() }
+        signOutAuth = { supabase.auth.signOut() },
+        clearCollaborationCache = clearCollaborationCache,
+        clearLocalDatabase = clearLocalDatabase
     )
 
     override suspend fun restoreForUser(userId: String): RestorePreferencesResult {
@@ -39,8 +44,10 @@ class DefaultUserPreferencesSyncCoordinator(
         val remoteSnapshot = cloudRepository.getForUser(userId)
 
         return if (remoteSnapshot == null) {
-            // Case A: New account -> Clear local onboarding data to prevent inheriting guest data
+            // Case A: New account -> Clear local onboarding data & database to prevent inheriting previous user's data
             localRepository.clearOnboardingPreferences()
+            clearLocalDatabase?.invoke()
+            clearCollaborationCache()
             RestorePreferencesResult.NeedsOnboarding
         } else if (!remoteSnapshot.onboardingCompleted) {
             // Case B: Remote exists but onboarding not completed
@@ -99,5 +106,20 @@ class DefaultUserPreferencesSyncCoordinator(
 
         // 4. Clear local onboarding preferences (theme is preserved)
         localRepository.clearOnboardingPreferences()
+
+        // 5. Clear local database tables to ensure account isolation
+        clearLocalDatabase?.invoke()
+    }
+
+    override suspend fun forceSync() {
+        val userId = getCurrentUserId() ?: throw IllegalStateException("User not authenticated")
+        val currentPrefs = localRepository.preferences.first()
+        val snapshot = OnboardingPreferencesSnapshot(
+            wakeUpTime = currentPrefs.wakeUpTime,
+            sleepTime = currentPrefs.sleepTime,
+            goals = currentPrefs.goals,
+            onboardingCompleted = currentPrefs.onboardingCompleted
+        )
+        cloudRepository.upsertForUser(userId, snapshot)
     }
 }

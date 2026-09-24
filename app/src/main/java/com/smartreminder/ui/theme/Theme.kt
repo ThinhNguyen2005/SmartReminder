@@ -26,53 +26,54 @@ object CueTheme {
 }
 
 @Composable
-private fun provideAnimatedCueColors(darkTheme: Boolean): CueColors {
-    // Fast & crisp 200ms transition to avoid muddy intermediate frames
-    val duration = 200
-    val animSpec = tween<androidx.compose.ui.graphics.Color>(durationMillis = duration, easing = FastOutSlowInEasing)
-
-    val background by animateColorAsState(if (darkTheme) CueDarkBackground else CueLightBackground, animSpec, label = "bg")
-    val surface by animateColorAsState(if (darkTheme) CueDarkSurface else CueLightSurface, animSpec, label = "surface")
-    val surfaceSubtle by animateColorAsState(if (darkTheme) CueDarkSurfaceSubtle else CueLightSurfaceSubtle, animSpec, label = "surfaceSubtle")
-    val textPrimary by animateColorAsState(if (darkTheme) CueDarkTextPrimary else CueLightTextPrimary, animSpec, label = "textPrimary")
-    val textSecondary by animateColorAsState(if (darkTheme) CueDarkTextSecondary else CueLightTextSecondary, animSpec, label = "textSecondary")
-    val textMuted by animateColorAsState(if (darkTheme) CueDarkTextMuted else CueLightTextMuted, animSpec, label = "textMuted")
-    val border by animateColorAsState(if (darkTheme) CueDarkBorder else CueLightBorder, animSpec, label = "border")
-    val borderStrong by animateColorAsState(if (darkTheme) CueDarkBorderStrong else CueLightBorderStrong, animSpec, label = "borderStrong")
-    val accent by animateColorAsState(if (darkTheme) CueDarkAccent else CueLightAccent, animSpec, label = "accent")
-    val accentStrong by animateColorAsState(if (darkTheme) CueDarkAccentStrong else CueLightAccentStrong, animSpec, label = "accentStrong")
-    val accentContainer by animateColorAsState(if (darkTheme) CueDarkAccentContainer else CueLightAccentContainer, animSpec, label = "accentContainer")
-    val cta by animateColorAsState(if (darkTheme) CueDarkCta else CueLightCta, animSpec, label = "cta")
-    val onCta by animateColorAsState(if (darkTheme) CueDarkOnCta else CueLightOnCta, animSpec, label = "onCta")
-    val success by animateColorAsState(if (darkTheme) CueDarkSuccess else CueLightSuccess, animSpec, label = "success")
-    val successContainer by animateColorAsState(if (darkTheme) CueDarkSuccessContainer else CueLightSuccessContainer, animSpec, label = "successContainer")
-    val warning by animateColorAsState(if (darkTheme) CueDarkWarning else CueLightWarning, animSpec, label = "warning")
-    val warningContainer by animateColorAsState(if (darkTheme) CueDarkWarningContainer else CueLightWarningContainer, animSpec, label = "warningContainer")
-    val error by animateColorAsState(if (darkTheme) CueDarkError else CueLightError, animSpec, label = "error")
-    val errorContainer by animateColorAsState(if (darkTheme) CueDarkErrorContainer else CueLightErrorContainer, animSpec, label = "errorContainer")
-
-    return CueColors(
-        background = background,
-        surface = surface,
-        surfaceSubtle = surfaceSubtle,
-        textPrimary = textPrimary,
-        textSecondary = textSecondary,
-        textMuted = textMuted,
-        border = border,
-        borderStrong = borderStrong,
-        accent = accent,
-        accentStrong = accentStrong,
-        accentContainer = accentContainer,
-        cta = cta,
-        onCta = onCta,
-        success = success,
-        successContainer = successContainer,
-        warning = warning,
-        warningContainer = warningContainer,
-        error = error,
-        errorContainer = errorContainer,
-        isDark = darkTheme
-    )
+private fun provideCueColors(darkTheme: Boolean): CueColors {
+    return if (darkTheme) {
+        CueColors(
+            background = CueDarkBackground,
+            surface = CueDarkSurface,
+            surfaceSubtle = CueDarkSurfaceSubtle,
+            textPrimary = CueDarkTextPrimary,
+            textSecondary = CueDarkTextSecondary,
+            textMuted = CueDarkTextMuted,
+            border = CueDarkBorder,
+            borderStrong = CueDarkBorderStrong,
+            accent = CueDarkAccent,
+            accentStrong = CueDarkAccentStrong,
+            accentContainer = CueDarkAccentContainer,
+            cta = CueDarkCta,
+            onCta = CueDarkOnCta,
+            success = CueDarkSuccess,
+            successContainer = CueDarkSuccessContainer,
+            warning = CueDarkWarning,
+            warningContainer = CueDarkWarningContainer,
+            error = CueDarkError,
+            errorContainer = CueDarkErrorContainer,
+            isDark = true
+        )
+    } else {
+        CueColors(
+            background = CueLightBackground,
+            surface = CueLightSurface,
+            surfaceSubtle = CueLightSurfaceSubtle,
+            textPrimary = CueLightTextPrimary,
+            textSecondary = CueLightTextSecondary,
+            textMuted = CueLightTextMuted,
+            border = CueLightBorder,
+            borderStrong = CueLightBorderStrong,
+            accent = CueLightAccent,
+            accentStrong = CueLightAccentStrong,
+            accentContainer = CueLightAccentContainer,
+            cta = CueLightCta,
+            onCta = CueLightOnCta,
+            success = CueLightSuccess,
+            successContainer = CueLightSuccessContainer,
+            warning = CueLightWarning,
+            warningContainer = CueLightWarningContainer,
+            error = CueLightError,
+            errorContainer = CueLightErrorContainer,
+            isDark = false
+        )
+    }
 }
 
 @Composable
@@ -80,54 +81,54 @@ fun SmartReminderTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val animatedCueColors = provideAnimatedCueColors(darkTheme)
+    val cueColors = provideCueColors(darkTheme)
 
     val materialColorScheme = if (darkTheme) {
         darkColorScheme(
-            primary = animatedCueColors.accent,
-            onPrimary = animatedCueColors.surface, // Contrast ~5.94:1 (#818CF8 on #18181B)
-            primaryContainer = animatedCueColors.accentContainer,
-            onPrimaryContainer = animatedCueColors.accentStrong,
-            secondary = animatedCueColors.textSecondary,
-            onSecondary = animatedCueColors.surface,
-            background = animatedCueColors.background,
-            onBackground = animatedCueColors.textPrimary,
-            surface = animatedCueColors.surface,
-            onSurface = animatedCueColors.textPrimary,
-            surfaceVariant = animatedCueColors.surfaceSubtle,
-            onSurfaceVariant = animatedCueColors.textSecondary,
-            outline = animatedCueColors.borderStrong, // Stronger outline for boundary
-            outlineVariant = animatedCueColors.border, // Softer outline for subtle dividers
-            error = animatedCueColors.error,
-            onError = animatedCueColors.surface,
-            errorContainer = animatedCueColors.errorContainer,
-            onErrorContainer = animatedCueColors.error
+            primary = cueColors.accent,
+            onPrimary = cueColors.surface, // Contrast ~5.94:1 (#818CF8 on #18181B)
+            primaryContainer = cueColors.accentContainer,
+            onPrimaryContainer = cueColors.accentStrong,
+            secondary = cueColors.textSecondary,
+            onSecondary = cueColors.surface,
+            background = cueColors.background,
+            onBackground = cueColors.textPrimary,
+            surface = cueColors.surface,
+            onSurface = cueColors.textPrimary,
+            surfaceVariant = cueColors.surfaceSubtle,
+            onSurfaceVariant = cueColors.textSecondary,
+            outline = cueColors.borderStrong, // Stronger outline for boundary
+            outlineVariant = cueColors.border, // Softer outline for subtle dividers
+            error = cueColors.error,
+            onError = cueColors.surface,
+            errorContainer = cueColors.errorContainer,
+            onErrorContainer = cueColors.error
         )
     } else {
         lightColorScheme(
-            primary = animatedCueColors.accent,
-            onPrimary = animatedCueColors.onCta,
-            primaryContainer = animatedCueColors.accentContainer,
-            onPrimaryContainer = animatedCueColors.accentStrong,
-            secondary = animatedCueColors.textSecondary,
-            onSecondary = animatedCueColors.surface,
-            background = animatedCueColors.background,
-            onBackground = animatedCueColors.textPrimary,
-            surface = animatedCueColors.surface,
-            onSurface = animatedCueColors.textPrimary,
-            surfaceVariant = animatedCueColors.surfaceSubtle,
-            onSurfaceVariant = animatedCueColors.textSecondary,
-            outline = animatedCueColors.borderStrong, // Stronger outline
-            outlineVariant = animatedCueColors.border, // Softer outline
-            error = animatedCueColors.error,
-            onError = animatedCueColors.surface,
-            errorContainer = animatedCueColors.errorContainer,
-            onErrorContainer = animatedCueColors.error
+            primary = cueColors.accent,
+            onPrimary = cueColors.onCta,
+            primaryContainer = cueColors.accentContainer,
+            onPrimaryContainer = cueColors.accentStrong,
+            secondary = cueColors.textSecondary,
+            onSecondary = cueColors.surface,
+            background = cueColors.background,
+            onBackground = cueColors.textPrimary,
+            surface = cueColors.surface,
+            onSurface = cueColors.textPrimary,
+            surfaceVariant = cueColors.surfaceSubtle,
+            onSurfaceVariant = cueColors.textSecondary,
+            outline = cueColors.borderStrong, // Stronger outline
+            outlineVariant = cueColors.border, // Softer outline
+            error = cueColors.error,
+            onError = cueColors.surface,
+            errorContainer = cueColors.errorContainer,
+            onErrorContainer = cueColors.error
         )
     }
 
     CompositionLocalProvider(
-        LocalCueColors provides animatedCueColors
+        LocalCueColors provides cueColors
     ) {
         MaterialTheme(
             colorScheme = materialColorScheme,

@@ -337,4 +337,105 @@
     <string name="groups_error_invalid_state">Thao tác này không còn khả dụng.</string>
     <string name="groups_error_mapping">Không thể đọc dữ liệu nhóm.</string>
     <string name="groups_error_unknown">Đã xảy ra lỗi. Hãy thử lại.</string>
+    <string name="profile_theme_picker_title">Chọn giao diện</string>
+    <string name="profile_theme_system">Theo hệ thống</string>
+    <string name="profile_theme_light">Sáng</string>
+    <string name="profile_theme_dark">Tối</string>
+    <string name="profile_sync_in_progress">Đang đồng bộ tài khoản...</string>
+    <string name="profile_sync_success">Đồng bộ tài khoản thành công!</string>
+    <string name="profile_sync_failed">Đồng bộ thất bại. Vui lòng thử lại.</string>
+    <string name="profile_edit_dialog_title">Chỉnh sửa hồ sơ</string>
+    <string name="profile_edit_name_label">Tên hiển thị</string>
+    <string name="profile_edit_name_placeholder">Nhập tên của bạn</string>
+    <string name="profile_edit_avatar_label">URL Ảnh đại diện</string>
+    <string name="profile_edit_avatar_placeholder">https://example.com/avatar.jpg</string>
+    <string name="profile_edit_change_photo">Chạm để chọn ảnh từ thư viện</string>
+    <string name="profile_theme_system_desc">Tự động điều chỉnh theo cài đặt thiết bị</string>
+    <string name="profile_theme_light_desc">Giao diện sáng rõ ràng, tươi tắn</string>
+    <string name="profile_theme_dark_desc">Giao diện tối êm dịu, dễ chịu cho mắt</string>
+    <string name="profile_edit_save">Lưu thay đổi</string>
+    <string name="profile_edit_cancel">Hủy</string>
+    <string name="profile_edit_saving">Đang lưu...</string>
+    <string name="profile_edit_success">Đã cập nhật hồ sơ thành công!</string>
+
+    <!-- Cài đặt Thông báo -->
+    <string name="profile_notification_settings_title">Cài đặt thông báo</string>
+    <string name="profile_notif_routine_title">Nhắc nhở Thức dậy &amp; Đi ngủ</string>
+    <string name="profile_notif_routine_desc">Thông báo trước 15 phút khi đến giờ thức dậy và đi ngủ</string>
+    <string name="profile_notif_tasks_title">Cảnh báo Công việc &amp; Lịch trình</string>
+    <string name="profile_notif_tasks_desc">Nhắc nhở khi công việc sắp đến hạn</string>
+    <string name="profile_notif_morning_title">Báo cáo buổi sáng</string>
+    <string name="profile_notif_morning_desc">Tóm tắt nhẹ nhàng về ngày mới khi bạn thức dậy</string>
+    <string name="profile_notif_quiet_title">Giờ yên tĩnh ban đêm (DND)</string>
+    <string name="profile_notif_quiet_desc">Tắt tiếng thông báo không khẩn cấp trong giờ ngủ</string>
+
+    <!-- Sao lưu Dữ liệu -->
+    <string name="profile_backup_title">Sao lưu &amp; Xuất dữ liệu</string>
+    <string name="profile_backup_cloud_title">Đồng bộ đám mây</string>
+    <string name="profile_backup_cloud_desc">Lưu trữ an toàn tùy chọn và lịch trình lên Supabase</string>
+    <string name="profile_backup_sync_now">Đồng bộ ngay</string>
+    <string name="profile_backup_export_title">Xuất bản sao lưu (JSON)</string>
+    <string name="profile_backup_export_desc">Lưu tất cả thói quen và công việc ra tệp JSON</string>
+    <string name="profile_backup_export_btn">Xuất sao lưu</string>
+
+    <!-- Quyền riêng tư & Dữ liệu -->
+    <string name="profile_privacy_title">Quyền riêng tư &amp; Dữ liệu</string>
+    <string name="profile_privacy_permissions_title">Quyền thiết bị</string>
+    <string name="profile_privacy_permissions_desc">Kiểm tra quyền thông báo và báo thức</string>
+    <string name="profile_privacy_open_settings">Mở cài đặt hệ thống</string>
+    <string name="profile_privacy_cache_title">Bộ nhớ &amp; Cache</string>
+    <string name="profile_privacy_cache_desc">Xóa ảnh cache và dữ liệu tạm</string>
+    <string name="profile_privacy_clear_cache_btn">Xóa cache</string>
+    <string name="profile_privacy_danger_title">Vùng nguy hiểm</string>
+    <string name="profile_privacy_delete_account_title">Xóa tài khoản &amp; Dữ liệu</string>
+    <string name="profile_privacy_delete_account_desc">Xóa vĩnh viễn tất cả dữ liệu trên máy và đám mây</string>
+    <string name="profile_privacy_delete_confirm_title">Xóa tài khoản vĩnh viễn?</string>
+    <string name="profile_privacy_delete_confirm_message">Thao tác này sẽ xóa tất cả công việc, thói quen và cài đặt. Hành động này không thể hoàn tác.</string>
+    <string name="profile_privacy_delete_confirm_btn">Xóa vĩnh viễn</string>
+
+    <!-- Màn hình Today -->
+    <string name="today_greeting_morning">Chào buổi sáng, %1$s</string>
+    <string name="today_greeting_afternoon">Chào buổi chiều, %1$s</string>
+    <string name="today_greeting_evening">Chào buổi tối, %1$s</string>
+    <string name="today_section_progress">Tiến độ hàng ngày</string>
+    <string name="today_progress_counter">Đã xong %1$d/%2$d mục</string>
+    <string name="today_section_up_next">Sắp tới</string>
+    <string name="today_section_now">Hiện tại</string>
+    <string name="today_now_label">%1$s — Hiện tại</string>
+    <string name="today_free_block_label">Rảnh · %1$s</string>
+    <string name="today_free_until">Rảnh đến %1$s</string>
+    <string name="today_free_slot_action_add">Thêm</string>
+    <string name="today_free_slot_action_add_to_plan">Thêm vào kế hoạch</string>
+    <string name="today_conflict_banner_title">Xung đột lịch trình</string>
+    <string name="today_conflict_busy_summary">Buổi chiều bận rộn · %1$d sự kiện</string>
+    <string name="today_conflict_suggestion">Cue có thể dời %1$s sang %2$s</string>
+    <string name="today_conflict_action_review">Xem lại</string>
+    <string name="today_view_plan">Xem kế hoạch</string>
+    <string name="today_suggested_focus">✦ %1$s · Đề xuất</string>
+    <string name="today_suggested_focus_fits">✦ %1$s phù hợp ở đây · khoảng %2$s</string>
+    <string name="today_priority_high">Ưu tiên cao</string>
+    <string name="today_members_count">%1$d thành viên</string>
+    <string name="today_virtual">Trực tuyến</string>
+    <string name="today_quick_create">Tạo nhanh</string>
+    <string name="today_view_mode_overview">Tổng quan</string>
+    <string name="today_view_mode_timeline">Dòng thời gian</string>
+    <string name="today_view_mode_minimal">Tối giản</string>
+    <string name="today_view_mode_conflict">Xung đột</string>
+    <string name="today_empty_title">Chưa có lịch trình cho hôm nay</string>
+    <string name="today_empty_desc">Tận hưởng ngày thảnh thơi hoặc nhấn + để thêm công việc mới.</string>
+    <string name="today_add_task_title">Thêm công việc mới</string>
+    <string name="today_add_task_name_label">Tên công việc</string>
+    <string name="today_add_task_name_placeholder">Ví dụ: Học bài, Họp nhóm, Ôn thi...</string>
+    <string name="today_add_task_start_time">Giờ bắt đầu</string>
+    <string name="today_add_task_duration">Thời lượng</string>
+    <string name="today_add_task_priority">Mức độ ưu tiên</string>
+    <string name="today_add_task_priority_normal">Bình thường</string>
+    <string name="today_add_task_priority_high">Quan trọng</string>
+    <string name="today_add_task_save">Lưu công việc</string>
+    <string name="today_add_task_cancel">Hủy</string>
+    <string name="today_ai_focus_message">Buổi chiều của bạn có vẻ bận rộn. Cue tìm thấy khoảng tập trung %1$d phút từ %2$s đến %3$s.</string>
+    <string name="today_ai_free_message">Bạn có %1$d phút rảnh bắt đầu từ %2$s.</string>
+    <string name="today_focus_fits_reason">Phù hợp khoảng tập trung %1$d phút</string>
+    <string name="today_busy_afternoon">Buổi chiều bận rộn</string>
+    <string name="today_conflict_rescheduled_toast">Đã dời %1$s sang %2$s</string>
 </resources>

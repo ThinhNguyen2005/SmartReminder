@@ -6,22 +6,26 @@ import android.net.NetworkCapabilities
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.smartreminder.data.local.datastore.DataStoreUserPreferencesRepository
 import com.smartreminder.data.local.room.CueDatabase
+import com.smartreminder.data.local.room.repository.RoomCollaborationCacheDataSource
 import com.smartreminder.data.local.room.repository.RoomRoutineRepository
 import com.smartreminder.data.local.room.repository.RoomScheduleGroupRepository
-import com.smartreminder.data.local.room.repository.RoomCollaborationCacheDataSource
-import com.smartreminder.data.local.datastore.DataStoreUserPreferencesRepository
-import com.smartreminder.data.remote.collaboration.SupabaseCollaborationRemoteDataSource
-import com.smartreminder.data.repository.collaboration.DefaultCollaborationRepository
+import com.smartreminder.data.local.room.repository.RoomTaskRepository
 import com.smartreminder.data.remote.SupabaseManager
+import com.smartreminder.data.remote.collaboration.SupabaseCollaborationRemoteDataSource
 import com.smartreminder.data.remote.preferences.SupabaseUserPreferencesCloudRepository
+import com.smartreminder.data.remote.profile.SupabaseUserProfileRepository
+import com.smartreminder.data.repository.collaboration.DefaultCollaborationRepository
 import com.smartreminder.data.sync.DefaultUserPreferencesSyncCoordinator
-import com.smartreminder.domain.repository.CollaborationRepository
 import com.smartreminder.domain.model.collaboration.ids.UserId
+import com.smartreminder.domain.repository.CollaborationRepository
 import com.smartreminder.domain.repository.RoutineRepository
 import com.smartreminder.domain.repository.ScheduleGroupRepository
+import com.smartreminder.domain.repository.TaskRepository
 import com.smartreminder.domain.repository.UserPreferencesCloudRepository
 import com.smartreminder.domain.repository.UserPreferencesRepository
+import com.smartreminder.domain.repository.UserProfileRepository
 import com.smartreminder.domain.sync.UserPreferencesSyncCoordinator
 import com.smartreminder.ui.groups.GroupsViewModelFactory
 import com.smartreminder.ui.groups.tasks.GroupTasksViewModelFactory
@@ -43,16 +47,6 @@ class AppContainer(private val context: Context) {
         SupabaseUserPreferencesCloudRepository { SupabaseManager.client }
     }
 
-    val userPreferencesSyncCoordinator: UserPreferencesSyncCoordinator by lazy {
-        DefaultUserPreferencesSyncCoordinator(
-            localRepository = userPreferencesRepository,
-            cloudRepository = userPreferencesCloudRepository,
-            getCurrentUserId = { SupabaseManager.currentUserIdOrNull() },
-            signOutAuth = { SupabaseManager.signOut() },
-            clearCollaborationCache = { collaborationRepository.clearSessionCache() }
-        )
-    }
-
     val cueDatabase: CueDatabase by lazy {
         CueDatabase.buildDatabase(context)
     }
@@ -65,6 +59,10 @@ class AppContainer(private val context: Context) {
         RoomRoutineRepository(cueDatabase.routineDao())
     }
 
+    val taskRepository: TaskRepository by lazy {
+        RoomTaskRepository(cueDatabase.taskDao())
+    }
+
     val collaborationRepository: CollaborationRepository by lazy {
         DefaultCollaborationRepository(
             cache = RoomCollaborationCacheDataSource(cueDatabase),
@@ -75,6 +73,25 @@ class AppContainer(private val context: Context) {
                 SupabaseManager.observeCurrentUserId().map { it?.let(::UserId) }
             }
         )
+    }
+
+    val userPreferencesSyncCoordinator: UserPreferencesSyncCoordinator by lazy {
+        DefaultUserPreferencesSyncCoordinator(
+            localRepository = userPreferencesRepository,
+            cloudRepository = userPreferencesCloudRepository,
+            getCurrentUserId = { SupabaseManager.currentUserIdOrNull() },
+            signOutAuth = { SupabaseManager.signOut() },
+            clearCollaborationCache = { collaborationRepository.clearSessionCache() },
+            clearLocalDatabase = {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    cueDatabase.clearAllTables()
+                }
+            }
+        )
+    }
+
+    val userProfileRepository: UserProfileRepository by lazy {
+        SupabaseUserProfileRepository(SupabaseManager.client)
     }
 
     val groupsViewModelFactory: GroupsViewModelFactory by lazy {

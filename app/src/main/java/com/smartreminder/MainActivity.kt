@@ -26,8 +26,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -42,6 +42,11 @@ import com.smartreminder.ui.app.AppViewModel
 import com.smartreminder.ui.app.AppViewModelFactory
 import com.smartreminder.ui.auth.AuthViewModel
 import com.smartreminder.ui.auth.WelcomeScreen
+import com.smartreminder.ui.calendar.CalendarPlaceholderScreen
+import com.smartreminder.ui.groups.GroupsRoute
+import com.smartreminder.ui.groups.GroupsViewModel
+import com.smartreminder.ui.groups.tasks.GroupTasksScreen
+import com.smartreminder.ui.groups.tasks.GroupTasksViewModel
 import com.smartreminder.ui.onboarding.OnboardingRoute
 import com.smartreminder.ui.onboarding.OnboardingViewModel
 import com.smartreminder.ui.onboarding.OnboardingViewModelFactory
@@ -52,13 +57,10 @@ import com.smartreminder.ui.schedules.SchedulesHost
 import com.smartreminder.ui.schedules.SchedulesViewModel
 import com.smartreminder.ui.schedules.SchedulesViewModelFactory
 import com.smartreminder.ui.schedules.editor.UuidRoutineEditorIdGenerator
-import com.smartreminder.ui.calendar.CalendarPlaceholderScreen
-import com.smartreminder.ui.groups.GroupsRoute
-import com.smartreminder.ui.groups.GroupsViewModel
-import com.smartreminder.ui.groups.tasks.GroupTasksScreen
-import com.smartreminder.ui.groups.tasks.GroupTasksViewModel
 import com.smartreminder.ui.theme.SmartReminderTheme
-import com.smartreminder.ui.today.TodayPlaceholderScreen
+import com.smartreminder.ui.today.TodayRoute
+import com.smartreminder.ui.today.TodayViewModel
+import com.smartreminder.ui.today.TodayViewModelFactory
 import java.time.Clock
 
 enum class OnboardingFlowStage {
@@ -146,9 +148,18 @@ class MainActivity : ComponentActivity() {
                             val groupTasksViewModel: GroupTasksViewModel = viewModel(
                                 factory = appContainer.groupTasksViewModelFactory
                             )
+                            val todayViewModelFactory = TodayViewModelFactory(
+                                userPreferencesRepository = appContainer.userPreferencesRepository,
+                                routineRepository = appContainer.routineRepository,
+                                taskRepository = appContainer.taskRepository
+                            )
                             val profileViewModelFactory = ProfileViewModelFactory(
                                 repository = appContainer.userPreferencesRepository,
-                                syncCoordinator = appContainer.userPreferencesSyncCoordinator
+                                syncCoordinator = appContainer.userPreferencesSyncCoordinator,
+                                userProfileRepository = appContainer.userProfileRepository,
+                                routineRepository = appContainer.routineRepository,
+                                taskRepository = appContainer.taskRepository,
+                                appContext = applicationContext
                             )
                             SmartReminderApp(
                                 schedulesViewModel = schedulesViewModel,
@@ -156,6 +167,7 @@ class MainActivity : ComponentActivity() {
                                 routineRepository = appContainer.routineRepository,
                                 groupsViewModel = groupsViewModel,
                                 groupTasksViewModel = groupTasksViewModel,
+                                todayViewModelFactory = todayViewModelFactory,
                                 profileViewModelFactory = profileViewModelFactory
                             )
                         }
@@ -173,6 +185,7 @@ fun SmartReminderApp(
     routineRepository: RoutineRepository,
     groupsViewModel: GroupsViewModel,
     groupTasksViewModel: GroupTasksViewModel,
+    todayViewModelFactory: TodayViewModelFactory,
     profileViewModelFactory: ProfileViewModelFactory
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.TODAY) }
@@ -215,9 +228,15 @@ fun SmartReminderApp(
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             destinationStateHolder.SaveableStateProvider(currentDestination) {
                 when (currentDestination) {
-                    AppDestination.TODAY -> TodayPlaceholderScreen(
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    AppDestination.TODAY -> {
+                        val todayViewModel: TodayViewModel = viewModel(
+                            factory = todayViewModelFactory
+                        )
+                        TodayRoute(
+                            viewModel = todayViewModel,
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
                     AppDestination.CALENDAR -> CalendarPlaceholderScreen(
                         modifier = Modifier.padding(innerPadding)
                     )

@@ -216,4 +216,19 @@ private class FakeAppRepository : UserPreferencesRepository {
             onboardingCompleted = false
         )
     }
+
+    override suspend fun updateNotificationPreferences(
+        routineReminders: Boolean,
+        taskReminders: Boolean,
+        morningBriefing: Boolean,
+        quietHours: Boolean
+    ) {
+        if (shouldThrowOnWrite) throw java.io.IOException("Simulated disk error")
+        _preferencesFlow.value = _preferencesFlow.value.copy(
+            routineRemindersEnabled = routineReminders,
+            taskRemindersEnabled = taskReminders,
+            morningBriefingEnabled = morningBriefing,
+            quietHoursEnabled = quietHours
+        )
+    }
 }
